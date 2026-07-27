@@ -657,7 +657,11 @@ function CheckoutPage() {
 
   const productIds = useMemo(() => items.map((i) => i.product_id), [items]);
 
-  if (items.length === 0) {
+  // ✅ PROTEÇÃO: só exibe "cesta vazia" se o modal PIX não estiver aberto.
+  // Se pixModalOpen=true e itens já foram limpos (handlePaymentConfirmed),
+  // o modal fecha e navega antes deste render — mas como defesa dupla,
+  // nunca fazemos early return enquanto o modal está visível.
+  if (items.length === 0 && !pixModalOpen) {
     return (
       <PublicLayout>
         <div style={{ minHeight: "60dvh", display: "grid", placeItems: "center" }}>
@@ -746,10 +750,15 @@ function CheckoutPage() {
   }, []);
 
   const handlePaymentConfirmed = useCallback(() => {
+    // ✅ CORREÇÃO CAUSA RAIZ: clear() acontece AQUI, só após confirmação,
+    // nunca antes de abrir o modal (evita items.length===0 → early return → React #300)
+    clear();
+    setAppliedCoupon(null);
+    setCouponCode("");
     setPixModalOpen(false);
     toast.success("Pagamento confirmado!");
     navigate({ to: "/pedidos" });
-  }, [navigate]);
+  }, [navigate, clear]);
 
   const submit = async () => {
     if (isSubmitting) return;
@@ -814,8 +823,13 @@ function CheckoutPage() {
 
         if (pixResult.success && pixResult.qrCode && pixResult.qrCodeBase64) {
           console.log("[Checkout] Abrindo modal PIX...");
-          
-          // Primeiro seta os dados, depois abre o modal
+
+          // ✅ CORREÇÃO CAUSA RAIZ — ordem correta:
+          // 1. Seta os dados do PIX
+          // 2. Abre o modal
+          // 3. NÃO limpa o carrinho aqui — clear() está em handlePaymentConfirmed
+          //    (se clear() fosse aqui, items.length===0 causaria early return
+          //     no próximo render → hooks desaparecem → React #300)
           setPixData({
             qrCode: pixResult.qrCode,
             qrCodeBase64: pixResult.qrCodeBase64,
@@ -823,20 +837,13 @@ function CheckoutPage() {
             paymentId: pixResult.paymentId || "",
             orderId: result.order.id,
           });
-          
-          // Use setTimeout para garantir que o estado foi atualizado
-          setTimeout(() => {
-            setPixModalOpen(true);
-          }, 0);
-          
-          clear();
-          setAppliedCoupon(null);
-          setCouponCode("");
+          setPixModalOpen(true);
           setIsSubmitting(false);
           return;
         } else {
           console.error("[Checkout] PIX falhou:", pixResult.error);
           toast.error(pixResult.error || "Erro ao gerar QR Code. Pague via PIX manual.");
+          // Falha: limpa normalmente e vai para pedidos
           clear();
           setAppliedCoupon(null);
           setCouponCode("");
