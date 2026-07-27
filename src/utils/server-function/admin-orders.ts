@@ -1,7 +1,7 @@
 // ============================================================
 // SERVER FUNCTIONS — Admin Orders
 // Feirinha Orgânica Terra Viva · Enterprise
-// Busca TODOS os pedidos (sem filtro de user_id) + controle total
+// CORREÇÃO: Busca pedidos e profiles separadamente + tipagem fixa
 // ============================================================
 
 import { createServerFn } from "@tanstack/react-start";
@@ -9,7 +9,32 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import type { Order, OrderStatus, PaymentStatus } from "@/types";
 
 /* ────────────────────────────────────────────────────────────
-   GET ALL ORDERS (Admin) — Busca TODOS os pedidos
+   PROFILE TYPE
+   ──────────────────────────────────────────────────────────── */
+interface ProfileData {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+}
+
+interface PaymentData {
+  id: string;
+  order_id: string;
+  method: string;
+  status: string;
+  amount: number;
+  transaction_id: string | null;
+  pix_qr_code: string | null;
+  pix_expiration: string | null;
+  mercado_pago_id: string | null;
+  paid_at: string | null;
+  refunded_at: string | null;
+  created_at: string;
+}
+
+/* ────────────────────────────────────────────────────────────
+   GET ALL ORDERS (Admin)
    ──────────────────────────────────────────────────────────── */
 export const getAllOrders = createServerFn({ method: "POST" })
   .validator((data: {
@@ -24,33 +49,28 @@ export const getAllOrders = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const admin = getSupabaseAdmin();
     if (!admin) {
-      return { success: false as const, error: "Serviço indisponível", orders: [], total: 0 };
+      console.error("[getAllOrders] getSupabaseAdmin() retornou null");
+      return { success: false as const, error: "Serviço indisponível", orders: [] as Order[], total: 0 };
     }
 
     try {
+      // 1. Busca os pedidos
       let query = admin
         .from("orders")
         .select(`
           *,
           items:order_items(*),
-          history:order_status_history(*),
-          payment:order_payments(*),
-          profile:profiles(id, full_name, email, phone)
+          history:order_status_history(*)
         `, { count: "exact" });
 
-      // Filtros
       if (data.status) query = query.eq("status", data.status);
       if (data.paymentStatus) query = query.eq("payment_status", data.paymentStatus);
       if (data.dateFrom) query = query.gte("created_at", data.dateFrom);
       if (data.dateTo) query = query.lte("created_at", data.dateTo);
-      
-      // Busca por número do pedido ou nome do cliente
       if (data.search) {
-        const q = data.search.trim();
-        query = query.or(`order_number.ilike.%${q}%,profile.full_name.ilike.%${q}%`);
+        query = query.ilike("order_number", `%${data.search.trim()}%`);
       }
 
-      // Paginação
       const page = data.page || 1;
       const perPage = data.perPage || 50;
       const from = (page - 1) * perPage;
@@ -60,25 +80,119 @@ export const getAllOrders = createServerFn({ method: "POST" })
         .order("created_at", { ascending: false })
         .range(from, to);
 
-      if (error) throw error;
+      if (error) {
+        console.error("[getAllOrders] Erro na query:", error);
+        throw error;
+      }
+
+      const ordersList = (orders || []) as Record<string, unknown>[];
+
+      // 2. Busca os profiles
+      const userIds = [...new Set(ordersList.map((o) => o.user_id as string).filter(Boolean))];
+      const profilesMap = new Map<string, ProfileData>();
+
+      if (userIds.length > 0) {
+        const { data: profiles, error: profilesError } = await admin
+          .from("profiles")
+          .select("id, full_name, email, phone")
+          .in("id", userIds);
+
+        if (profilesError) {
+          console.warn("[getAllOrders] Erro profiles:", profilesError);
+        } else if (profiles) {
+          (profiles as Record<string, unknown>[]).forEach((p) => {
+            profilesMap.set(p.id as string, {
+              id: p.id as string,
+              full_name: (p.full_name as string) || "Cliente",
+              email: (p.email as string) || "",
+              phone: (p.phone as string | null) || null,
+            });
+          });
+        }
+      }
+
+      // 3. Busca os pagamentos
+      const orderIds = ordersList.map((o) => o.id as string);
+      const paymentsMap = new Map<string, PaymentData>();
+
+      if (orderIds.length > 0) {
+        try {
+          const { data: payments, error: paymentsError } = await admin
+            .from("order_payments")
+            .select("*")
+            .in("order_id", orderIds);
+
+          if (paymentsError) {
+            console.warn("[getAllOrders] Erro payments:", paymentsError);
+          } else if (payments) {
+            (payments as Record<string, unknown>[]).forEach((p) => {
+              const oid = p.order_id as string;
+              if (!paymentsMap.has(oid)) {
+                paymentsMap.set(oid, {
+                  id: p.id as string,
+                  order_id: oid,
+                  method: p.method as string,
+                  status: p.status as string,
+                  amount: p.amount as number,
+                  transaction_id: (p.transaction_id as string | null) || null,
+                  pix_qr_code: (p.pix_qr_code as string | null) || null,
+                  pix_expiration: (p.pix_expiration as string | null) || null,
+                  mercado_pago_id: (p.mercado_pago_id as string | null) || null,
+                  paid_at: (p.paid_at as string | null) || null,
+                  refunded_at: (p.refunded_at as string | null) || null,
+                  created_at: p.created_at as string,
+                });
+              }
+            });
+          }
+        } catch (paymentsErr) {
+          console.warn("[getAllOrders] Exceção payments:", paymentsErr);
+        }
+      }
+
+      // 4. Merge — usa Record para evitar cast problemático
+      const enrichedOrders: Record<string, unknown>[] = ordersList.map((order) => {
+        const userId = order.user_id as string;
+        const orderId = order.id as string;
+        const profile = profilesMap.get(userId) || null;
+        const payment = paymentsMap.get(orderId) || null;
+
+        return {
+          ...order,
+          profile,
+          payment,
+        };
+      });
+
+      // 5. Filtro por nome do cliente (no código)
+      let finalOrders = enrichedOrders;
+      if (data.search && data.search.trim()) {
+        const q = data.search.trim().toLowerCase();
+        finalOrders = enrichedOrders.filter((o) => {
+          const orderNum = ((o.order_number as string) || "").toLowerCase();
+          const prof = o.profile as ProfileData | null;
+          const clientName = (prof?.full_name || "").toLowerCase();
+          return orderNum.includes(q) || clientName.includes(q);
+        });
+      }
 
       return {
         success: true as const,
-        orders: orders || [],
+        orders: finalOrders as unknown as Order[],
         total: count || 0,
         page,
         perPage,
         totalPages: Math.ceil((count || 0) / perPage),
       };
-    } catch (err) {
+    } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Erro ao carregar pedidos";
       console.error("[getAllOrders] Erro:", err);
-      return { success: false as const, error: message, orders: [], total: 0 };
+      return { success: false as const, error: message, orders: [] as Order[], total: 0 };
     }
   });
 
 /* ────────────────────────────────────────────────────────────
-   GET ORDER DETAIL (Admin) — Busca pedido sem verificar user_id
+   GET ORDER DETAIL (Admin)
    ──────────────────────────────────────────────────────────── */
 export const getOrderDetailAdmin = createServerFn({ method: "POST" })
   .validator((data: { orderId: string }) => data)
@@ -91,20 +205,71 @@ export const getOrderDetailAdmin = createServerFn({ method: "POST" })
     try {
       const { data: order, error } = await admin
         .from("orders")
-        .select(`
-          *,
-          items:order_items(*),
-          history:order_status_history(*),
-          payment:order_payments(*),
-          profile:profiles(id, full_name, email, phone)
-        `)
+        .select(`*, items:order_items(*), history:order_status_history(*)`)
         .eq("id", data.orderId)
         .single();
 
       if (error) throw error;
+      if (!order) return { success: false as const, error: "Pedido não encontrado", order: null };
 
-      return { success: true as const, order };
-    } catch (err) {
+      const orderRecord = order as Record<string, unknown>;
+
+      // Profile
+      let profile: ProfileData | null = null;
+      try {
+        const { data: profileData } = await admin
+          .from("profiles")
+          .select("id, full_name, email, phone")
+          .eq("id", orderRecord.user_id as string)
+          .single();
+        if (profileData) {
+          const p = profileData as Record<string, unknown>;
+          profile = {
+            id: p.id as string,
+            full_name: (p.full_name as string) || "",
+            email: (p.email as string) || "",
+            phone: (p.phone as string | null) || null,
+          };
+        }
+      } catch {
+        // ignore
+      }
+
+      // Payments
+      let payment: PaymentData | null = null;
+      try {
+        const { data: paymentsData } = await admin
+          .from("order_payments")
+          .select("*")
+          .eq("order_id", data.orderId)
+          .limit(1)
+          .single();
+        if (paymentsData) {
+          const p = paymentsData as Record<string, unknown>;
+          payment = {
+            id: p.id as string,
+            order_id: p.order_id as string,
+            method: p.method as string,
+            status: p.status as string,
+            amount: p.amount as number,
+            transaction_id: (p.transaction_id as string | null) || null,
+            pix_qr_code: (p.pix_qr_code as string | null) || null,
+            pix_expiration: (p.pix_expiration as string | null) || null,
+            mercado_pago_id: (p.mercado_pago_id as string | null) || null,
+            paid_at: (p.paid_at as string | null) || null,
+            refunded_at: (p.refunded_at as string | null) || null,
+            created_at: p.created_at as string,
+          };
+        }
+      } catch {
+        // ignore
+      }
+
+      return {
+        success: true as const,
+        order: { ...orderRecord, profile, payment } as unknown as Order,
+      };
+    } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Erro ao carregar pedido";
       console.error("[getOrderDetailAdmin] Erro:", err);
       return { success: false as const, error: message, order: null };
@@ -129,18 +294,13 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
     }
 
     try {
-      // Atualiza status do pedido
       const { error: updateError } = await admin
         .from("orders")
-        .update({ 
-          status: data.status, 
-          updated_at: new Date().toISOString() 
-        })
+        .update({ status: data.status, updated_at: new Date().toISOString() })
         .eq("id", data.orderId);
 
       if (updateError) throw updateError;
 
-      // Adiciona ao histórico
       await admin.from("order_status_history").insert({
         order_id: data.orderId,
         status: data.status,
@@ -150,7 +310,7 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
       });
 
       return { success: true as const };
-    } catch (err) {
+    } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Erro ao atualizar pedido";
       console.error("[updateOrderStatus] Erro:", err);
       return { success: false as const, error: message };
@@ -175,39 +335,34 @@ export const updatePaymentStatus = createServerFn({ method: "POST" })
     }
 
     try {
-      // Atualiza status de pagamento
       const { error: updateError } = await admin
         .from("orders")
-        .update({ 
-          payment_status: data.paymentStatus,
-          updated_at: new Date().toISOString() 
-        })
+        .update({ payment_status: data.paymentStatus, updated_at: new Date().toISOString() })
         .eq("id", data.orderId);
 
       if (updateError) throw updateError;
 
-      // Se foi pago, atualiza o payment também
       if (data.paymentStatus === "paid") {
-        await admin
-          .from("order_payments")
-          .update({ 
-            status: "paid",
-            paid_at: new Date().toISOString() 
-          })
-          .eq("order_id", data.orderId);
+        try {
+          await admin
+            .from("order_payments")
+            .update({ status: "paid", paid_at: new Date().toISOString() })
+            .eq("order_id", data.orderId);
+        } catch (paymentErr) {
+          console.warn("[updatePaymentStatus] Erro order_payments:", paymentErr);
+        }
       }
 
-      // Adiciona ao histórico
       await admin.from("order_status_history").insert({
         order_id: data.orderId,
-        status: "pending", // mantém o status do pedido, só muda pagamento
+        status: "pending",
         notes: data.notes || `Pagamento ${data.paymentStatus} pelo admin`,
         created_by: data.adminId,
         created_by_name: data.adminName,
       });
 
       return { success: true as const };
-    } catch (err) {
+    } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Erro ao atualizar pagamento";
       console.error("[updatePaymentStatus] Erro:", err);
       return { success: false as const, error: message };
@@ -233,15 +388,11 @@ export const cancelOrderAdmin = createServerFn({ method: "POST" })
     try {
       const { error: updateError } = await admin
         .from("orders")
-        .update({ 
-          status: "cancelled",
-          updated_at: new Date().toISOString() 
-        })
+        .update({ status: "cancelled", updated_at: new Date().toISOString() })
         .eq("id", data.orderId);
 
       if (updateError) throw updateError;
 
-      // Adiciona ao histórico
       await admin.from("order_status_history").insert({
         order_id: data.orderId,
         status: "cancelled",
@@ -251,7 +402,7 @@ export const cancelOrderAdmin = createServerFn({ method: "POST" })
       });
 
       return { success: true as const };
-    } catch (err) {
+    } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Erro ao cancelar pedido";
       console.error("[cancelOrderAdmin] Erro:", err);
       return { success: false as const, error: message };
