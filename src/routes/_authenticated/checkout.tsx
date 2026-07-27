@@ -152,7 +152,7 @@ function Stepper({ currentStep }: { currentStep: StepKey }) {
 }
 
 /* ────────────────────────────────────────────────────────────
-   PIX MODAL
+   PIX MODAL — COM VERIFICAÇÃO DEFENSIVA
    ──────────────────────────────────────────────────────────── */
 function PixModal({
   isOpen,
@@ -181,9 +181,14 @@ function PixModal({
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    if (!isOpen) return;
+  // Verificação defensiva — não renderiza se dados essenciais faltarem
+  if (!isOpen) return null;
+  if (!qrCode || !qrCodeBase64 || !orderId) {
+    console.error("[PixModal] Dados incompletos:", { qrCode: !!qrCode, qrCodeBase64: !!qrCodeBase64, orderId: !!orderId });
+    return null;
+  }
 
+  useEffect(() => {
     intervalRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -213,7 +218,7 @@ function PixModal({
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [isOpen, orderId, userId, onPaymentConfirmed]);
+  }, [orderId, userId, onPaymentConfirmed]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -227,8 +232,6 @@ function PixModal({
     toast.success("Código PIX copiado!");
     setTimeout(() => setCopied(false), 2000);
   };
-
-  if (!isOpen) return null;
 
   return (
     <div
@@ -687,6 +690,12 @@ function CheckoutPage() {
     toast.success("Cupom removido");
   }, []);
 
+  const handlePaymentConfirmed = useCallback(() => {
+    setPixModalOpen(false);
+    toast.success("Pagamento confirmado!");
+    navigate({ to: "/pedidos" });
+  }, [navigate]);
+
   const submit = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -720,59 +729,80 @@ function CheckoutPage() {
         items: orderItems,
       };
 
+      console.log("[Checkout] Criando pedido...", { payment, total });
       const result = await createOrder({ data: orderData });
+      console.log("[Checkout] createOrder result:", result);
 
-      if (result.success && result.order) {
-        // Se for PIX MP, gera QR Code
-        if (payment === "mercado_pago") {
-          const pixResult = await createMercadoPagoPix({
-            data: {
-              orderId: result.order.id,
-              amount: total,
-              description: `Pedido ${result.order.order_number} - Terra Viva`,
-              payerEmail: profile.email,
-              payerCpf: undefined,
-            },
-          });
-
-          if (pixResult.success && pixResult.qrCode && pixResult.qrCodeBase64) {
-            setPixData({
-              qrCode: pixResult.qrCode,
-              qrCodeBase64: pixResult.qrCodeBase64,
-              ticketUrl: pixResult.ticketUrl || "",
-              paymentId: pixResult.paymentId || "",
-              orderId: result.order.id,
-            });
-            setPixModalOpen(true);
-            clear();
-            setAppliedCoupon(null);
-            setCouponCode("");
-            return;
-          } else {
-            toast.error(pixResult.error || "Erro ao gerar QR Code PIX");
-          }
-        }
-
-        clear();
-        setAppliedCoupon(null);
-        setCouponCode("");
-        toast.success("Pedido confirmado! Estamos preparando com carinho.");
-        navigate({ to: "/pedidos" });
-      } else {
+      if (!result.success || !result.order) {
         toast.error(result.error || "Erro ao criar pedido. Tente novamente.");
+        setIsSubmitting(false);
+        return;
       }
+
+      console.log("[Checkout] Pedido criado:", result.order.id);
+
+      // Se for PIX MP, gera QR Code
+      if (payment === "mercado_pago") {
+        console.log("[Checkout] Gerando PIX...");
+        
+        const pixResult = await createMercadoPagoPix({
+          data: {
+            orderId: result.order.id,
+            amount: total,
+            description: `Pedido ${result.order.order_number} - Terra Viva`,
+            payerEmail: profile.email,
+            payerCpf: undefined,
+          },
+        });
+
+        console.log("[Checkout] PIX result:", pixResult);
+
+        if (pixResult.success && pixResult.qrCode && pixResult.qrCodeBase64) {
+          console.log("[Checkout] Abrindo modal PIX...");
+          
+          // Primeiro seta os dados, depois abre o modal
+          setPixData({
+            qrCode: pixResult.qrCode,
+            qrCodeBase64: pixResult.qrCodeBase64,
+            ticketUrl: pixResult.ticketUrl || "",
+            paymentId: pixResult.paymentId || "",
+            orderId: result.order.id,
+          });
+          
+          // Use setTimeout para garantir que o estado foi atualizado
+          setTimeout(() => {
+            setPixModalOpen(true);
+          }, 0);
+          
+          clear();
+          setAppliedCoupon(null);
+          setCouponCode("");
+          setIsSubmitting(false);
+          return;
+        } else {
+          console.error("[Checkout] PIX falhou:", pixResult.error);
+          toast.error(pixResult.error || "Erro ao gerar QR Code. Pague via PIX manual.");
+          clear();
+          setAppliedCoupon(null);
+          setCouponCode("");
+          setIsSubmitting(false);
+          navigate({ to: "/pedidos" });
+          return;
+        }
+      }
+
+      // Pagamento offline
+      clear();
+      setAppliedCoupon(null);
+      setCouponCode("");
+      toast.success("Pedido confirmado! Estamos preparando com carinho.");
+      setIsSubmitting(false);
+      navigate({ to: "/pedidos" });
     } catch (err) {
-      console.error("[Checkout] Erro:", err);
+      console.error("[Checkout] Erro inesperado:", err);
       toast.error("Erro inesperado. Tente novamente.");
-    } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handlePaymentConfirmed = () => {
-    setPixModalOpen(false);
-    toast.success("Pagamento confirmado!");
-    navigate({ to: "/pedidos" });
   };
 
   // ── STEP: REVIEW ──
@@ -1798,8 +1828,8 @@ function CheckoutPage() {
         </div>
       </div>
 
-      {/* PIX Modal */}
-      {pixData && (
+      {/* PIX Modal — SÓ RENDERIZA SE TODOS OS DADOS EXISTIREM */}
+      {pixModalOpen && pixData && pixData.qrCode && pixData.qrCodeBase64 && (
         <PixModal
           isOpen={pixModalOpen}
           onClose={() => setPixModalOpen(false)}
