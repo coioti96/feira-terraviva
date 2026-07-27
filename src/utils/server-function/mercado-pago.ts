@@ -12,7 +12,7 @@ const MP_CLIENT_ID = process.env.MERCADO_PAGO_CLIENT_ID || "";
 const MP_CLIENT_SECRET = process.env.MERCADO_PAGO_CLIENT_SECRET || "";
 const MP_WEBHOOK_SECRET = process.env.MERCADO_PAGO_WEBHOOK_SECRET || "";
 
-const MP_AUTH_URL = "https://www.mercadopago.com.br/oauth/token";
+const MP_AUTH_URL = "https://api.mercadopago.com/oauth/token";
 const MP_API_URL = "https://api.mercadopago.com";
 
 // ── TYPES ──────────────────────────────────────────────────
@@ -62,8 +62,16 @@ function generateState(): string {
 }
 
 function getBaseUrl(): string {
-  // Usa o domínio principal, nunca o interno do Vercel
+  // Domínio fixo — evita problema com VERCEL_URL interno
+  if (process.env.VERCEL_URL?.includes("localhost")) {
+    return "http://localhost:8080";
+  }
   return "https://feiraterraviva.vercel.app";
+}
+
+function getBasicAuthHeader(): string {
+  const credentials = btoa(`${MP_CLIENT_ID}:${MP_CLIENT_SECRET}`);
+  return `Basic ${credentials}`;
 }
 
 async function getSettingsWithOAuth(admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>) {
@@ -134,24 +142,34 @@ export const exchangeMercadoPagoCode = createServerFn({ method: "POST" })
 
       const redirectUri = `${getBaseUrl()}/api/mercado-pago/callback`;
 
+      // Log para debug (aparece nos logs do Vercel)
+      console.log("[exchangeMercadoPagoCode] Trocando code por token...");
+      console.log("[exchangeMercadoPagoCode] Client ID:", MP_CLIENT_ID.slice(0, 8) + "...");
+      console.log("[exchangeMercadoPagoCode] Redirect URI:", redirectUri);
+
       const tokenRes = await fetch(MP_AUTH_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Authorization": getBasicAuthHeader(),
+        },
         body: new URLSearchParams({
-          client_id: MP_CLIENT_ID,
-          client_secret: MP_CLIENT_SECRET,
+          grant_type: "authorization_code",
           code,
           redirect_uri: redirectUri,
-          grant_type: "authorization_code",
         }),
       });
 
+      console.log("[exchangeMercadoPagoCode] Status:", tokenRes.status);
+
       if (!tokenRes.ok) {
-        const err = await tokenRes.text();
-        throw new Error(`MP Token error: ${err}`);
+        const errText = await tokenRes.text();
+        console.error("[exchangeMercadoPagoCode] Erro MP:", errText.slice(0, 500));
+        throw new Error(`MP Token error (${tokenRes.status}): ${errText.slice(0, 200)}`);
       }
 
       const tokenData = (await tokenRes.json()) as MPTokenResponse;
+      console.log("[exchangeMercadoPagoCode] Token obtido! User ID:", tokenData.user_id);
 
       const userRes = await fetch(`${MP_API_URL}/users/me`, {
         headers: { Authorization: `Bearer ${tokenData.access_token}` },
@@ -174,12 +192,16 @@ export const exchangeMercadoPagoCode = createServerFn({ method: "POST" })
         mercado_pago_user_id: String(tokenData.user_id),
       }).eq("id", settings.id);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error("[exchangeMercadoPagoCode] Erro Supabase:", updateError);
+        throw updateError;
+      }
 
+      console.log("[exchangeMercadoPagoCode] Sucesso! Conta:", accountName);
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro na autenticação";
-      console.error("[exchangeMercadoPagoCode]", err);
+      console.error("[exchangeMercadoPagoCode] Erro:", err);
       return { success: false, error: message };
     }
   });
@@ -267,12 +289,13 @@ async function refreshMercadoPagoToken(
   try {
     const res = await fetch(MP_AUTH_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": getBasicAuthHeader(),
+      },
       body: new URLSearchParams({
-        client_id: MP_CLIENT_ID,
-        client_secret: MP_CLIENT_SECRET,
-        refresh_token: settings.mercado_pago_refresh_token,
         grant_type: "refresh_token",
+        refresh_token: settings.mercado_pago_refresh_token,
       }),
     });
 
