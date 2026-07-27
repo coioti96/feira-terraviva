@@ -152,7 +152,7 @@ function Stepper({ currentStep }: { currentStep: StepKey }) {
 }
 
 /* ────────────────────────────────────────────────────────────
-   PIX MODAL — COM VERIFICAÇÃO DEFENSIVA
+   PIX MODAL — SEM HOOKS CONDICIONAIS
    ──────────────────────────────────────────────────────────── */
 function PixModal({
   isOpen,
@@ -175,7 +175,7 @@ function PixModal({
   userId: string;
   onPaymentConfirmed: () => void;
 }) {
-  // ✅ TODOS os hooks PRIMEIRO, antes de qualquer return
+  // TODOS os hooks primeiro - nunca retorna antes
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState<"pending" | "paid" | "expired">("pending");
   const [timeLeft, setTimeLeft] = useState(30 * 60);
@@ -229,11 +229,19 @@ function PixModal({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // ✅ SÓ DEPOIS de todos os hooks, faz o early return
+  // SÓ DEPOIS de todos os hooks, early return
   if (!isOpen) return null;
-  if (!qrCode || !qrCodeBase64 || !orderId) {
-    console.error("[PixModal] Dados incompletos");
-    return null;
+
+  // Se dados faltarem, mostra erro em vez de quebrar
+  if (!qrCode || !qrCodeBase64) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "grid", placeItems: "center" }}>
+        <div style={{ background: "white", padding: 24, borderRadius: 16 }}>
+          <p>Erro ao carregar QR Code</p>
+          <button onClick={onClose}>Fechar</button>
+        </div>
+      </div>
+    );
   }
 
   return (
