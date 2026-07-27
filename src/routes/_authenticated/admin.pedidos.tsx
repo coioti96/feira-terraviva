@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import {
@@ -6,16 +6,15 @@ import {
   XCircle, RotateCcw, Download, Calendar, Phone, MapPin, CreditCard, Banknote,
   Receipt, Clock, ChevronDown, X, Loader2, AlertTriangle, ArrowRight, User,
   Hash, ShoppingBag, TrendingUp, TrendingDown, DollarSign, Truck as TruckIcon,
-  Ban, CheckCheck, ClipboardList, ChevronRight, Copy
+  Ban, CheckCheck, ClipboardList, ChevronRight, Copy, Wallet, CircleDollarSign
 } from "lucide-react";
-import { useOrdersStore } from "@/stores/orders";
+import { useAdminOrdersStore } from "@/stores/orders";
 import { useAuthStore } from "@/stores/auth";
-import { useCatalogStore } from "@/stores/catalog";
 import {
   formatCurrency, formatDateTime, formatDateShort, formatDateRelative,
   formatPhone, cn, capitalize
 } from "@/lib/utils";
-import type { Order, OrderStatus, OrderStatusHistory } from "@/types";
+import type { Order, OrderStatus, OrderStatusHistory, PaymentStatus } from "@/types";
 
 export const Route = createFileRoute("/_authenticated/admin/pedidos")({
   head: () => ({
@@ -101,6 +100,19 @@ const STATUS_CONFIG: Record<OrderStatus, {
   },
 };
 
+const PAYMENT_STATUS_CONFIG: Record<PaymentStatus, {
+  label: string;
+  color: string;
+  bg: string;
+  dot: string;
+}> = {
+  pending: { label: "Pendente", color: "text-[var(--tv-terracota-dk)]", bg: "bg-[var(--tv-warning-lt)]", dot: "bg-[var(--tv-terracota)]" },
+  paid: { label: "Pago", color: "text-[var(--tv-success)]", bg: "bg-[var(--tv-success-lt)]", dot: "bg-[var(--tv-success)]" },
+  failed: { label: "Falhou", color: "text-[var(--tv-danger)]", bg: "bg-[var(--tv-danger-lt)]", dot: "bg-[var(--tv-danger)]" },
+  refunded: { label: "Reembolsado", color: "text-[var(--tv-danger)]", bg: "bg-[var(--tv-danger-lt)]", dot: "bg-[var(--tv-danger)]" },
+  cancelled: { label: "Cancelado", color: "text-[var(--tv-stone-400)]", bg: "bg-[var(--tv-stone-100)]", dot: "bg-[var(--tv-stone-400)]" },
+};
+
 const PAYMENT_ICONS: Record<string, React.ElementType> = {
   pix: CreditCard,
   cash: Banknote,
@@ -120,6 +132,18 @@ const PAYMENT_LABELS: Record<string, string> = {
    ──────────────────────────────────────────────────────────── */
 type PeriodFilter = "today" | "yesterday" | "week" | "all";
 type SortKey = "created_at" | "total" | "status" | "order_number";
+
+/* ────────────────────────────────────────────────────────────
+   PROFILE HELPER TYPE
+   ──────────────────────────────────────────────────────────── */
+interface OrderWithProfile extends Order {
+  profile?: {
+    id: string;
+    full_name: string;
+    email: string;
+    phone: string | null;
+  } | null;
+}
 
 /* ────────────────────────────────────────────────────────────
    SKELETON
@@ -189,19 +213,31 @@ function OrderDetailModal({
   order,
   onClose,
   onUpdateStatus,
+  onUpdatePayment,
   onCancel,
   isUpdating,
+  adminId,
+  adminName,
 }: {
-  order: Order;
+  order: OrderWithProfile;
   onClose: () => void;
   onUpdateStatus: (id: string, status: OrderStatus) => void;
+  onUpdatePayment: (id: string, status: PaymentStatus) => void;
   onCancel: (id: string, reason?: string) => void;
   isUpdating: boolean;
+  adminId: string;
+  adminName: string;
 }) {
   const [cancelReason, setCancelReason] = useState("");
   const [showCancelInput, setShowCancelInput] = useState(false);
+  const [showPaymentActions, setShowPaymentActions] = useState(false);
   const config = STATUS_CONFIG[order.status];
   const nextStatus = config.next;
+  const paymentConfig = PAYMENT_STATUS_CONFIG[order.payment_status];
+
+  const customerName = order.profile?.full_name || "Cliente não identificado";
+  const customerEmail = order.profile?.email || "";
+  const customerPhone = order.profile?.phone || "";
 
   const statusFlow: { status: OrderStatus; label: string; active: boolean; completed: boolean }[] = [
     { status: "pending", label: "Recebido", active: order.status === "pending", completed: !["pending"].includes(order.status) && order.status !== "cancelled" && order.status !== "refunded" },
@@ -260,14 +296,30 @@ function OrderDetailModal({
             </div>
           )}
 
-          {/* Client Info — busca via user_id, não user_name/user_phone */}
+          {/* Client Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="rounded-xl bg-[var(--tv-cream)] border border-[var(--tv-stone-200)] p-4">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--tv-stone-500)] mb-3">Cliente</h4>
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm">
                   <User className="h-3.5 w-3.5 text-[var(--tv-stone-400)]" />
-                  <span className="text-[var(--tv-stone-800)] font-medium">ID: {order.user_id?.slice(0, 8)}...</span>
+                  <span className="text-[var(--tv-stone-800)] font-medium">{customerName}</span>
+                </div>
+                {customerEmail && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-[var(--tv-stone-400)] text-xs">@</span>
+                    <span className="text-[var(--tv-stone-600)] text-xs">{customerEmail}</span>
+                  </div>
+                )}
+                {customerPhone && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-3.5 w-3.5 text-[var(--tv-stone-400)]" />
+                    <span className="text-[var(--tv-stone-600)] text-xs">{formatPhone(customerPhone)}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-xs text-[var(--tv-stone-400)] pt-1">
+                  <Hash className="h-3 w-3" />
+                  <span className="font-mono">{order.user_id?.slice(0, 12)}...</span>
                   <button
                     onClick={() => { navigator.clipboard.writeText(order.user_id); toast.success("ID copiado!"); }}
                     className="text-[var(--tv-stone-400)] hover:text-[var(--tv-moss)] transition-colors"
@@ -276,9 +328,6 @@ function OrderDetailModal({
                     <Copy className="h-3 w-3" />
                   </button>
                 </div>
-                <p className="text-xs text-[var(--tv-stone-400)] pl-5.5">
-                  Consulte o perfil do cliente no painel de usuários para mais detalhes.
-                </p>
               </div>
             </div>
 
@@ -304,28 +353,61 @@ function OrderDetailModal({
             </div>
           </div>
 
-          {/* Payment */}
+          {/* Payment + Controle de Pagamento */}
           <div className="rounded-xl bg-[var(--tv-cream)] border border-[var(--tv-stone-200)] p-4">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--tv-stone-500)] mb-3">Pagamento</h4>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--tv-stone-500)]">Pagamento</h4>
+              {order.payment_status === "pending" && order.status !== "cancelled" && order.status !== "refunded" && (
+                <button
+                  onClick={() => setShowPaymentActions((s) => !s)}
+                  className="text-xs text-[var(--tv-moss)] hover:underline flex items-center gap-1"
+                >
+                  <CircleDollarSign className="h-3 w-3" />
+                  {showPaymentActions ? "Fechar" : "Confirmar pagamento"}
+                </button>
+              )}
+            </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <PaymentIcon className="h-4 w-4 text-[var(--tv-moss)]" />
                 <span className="text-sm font-medium text-[var(--tv-stone-800)]">{PAYMENT_LABELS[order.payment_method] || order.payment_method}</span>
-                <span className={cn("tv-status text-[10px]",
-                  order.payment_status === "paid" ? "tv-status--delivered" :
-                  order.payment_status === "pending" ? "tv-status--pending" :
-                  "tv-status--cancelled"
-                )}>
-                  {order.payment_status === "paid" ? "Pago" :
-                   order.payment_status === "pending" ? "Pendente" :
-                   order.payment_status === "failed" ? "Falhou" :
-                   order.payment_status === "refunded" ? "Reembolsado" : order.payment_status}
+                <span className={cn("tv-status text-[10px]", paymentConfig.bg, paymentConfig.color)}>
+                  <span className={cn("h-1.5 w-1.5 rounded-full", paymentConfig.dot)} />
+                  {paymentConfig.label}
                 </span>
               </div>
               <span className="text-sm font-bold text-[var(--tv-moss)]">{formatCurrency(order.total)}</span>
             </div>
             {order.change_for && order.payment_method === "cash" && (
               <p className="text-xs text-[var(--tv-stone-500)] mt-2">Troco para: {formatCurrency(order.change_for)}</p>
+            )}
+
+            {/* Payment Actions */}
+            {showPaymentActions && (
+              <div className="mt-3 pt-3 border-t border-[var(--tv-stone-200)] flex gap-2">
+                <button
+                  onClick={() => { onUpdatePayment(order.id, "paid"); setShowPaymentActions(false); }}
+                  className="tv-btn tv-btn--success tv-btn--sm gap-1.5"
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
+                  Marcar como pago
+                </button>
+                <button
+                  onClick={() => { onUpdatePayment(order.id, "failed"); setShowPaymentActions(false); }}
+                  className="tv-btn tv-btn--danger tv-btn--sm gap-1.5"
+                  disabled={isUpdating}
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                  Marcar como falhou
+                </button>
+                <button
+                  onClick={() => setShowPaymentActions(false)}
+                  className="tv-btn tv-btn--secondary tv-btn--sm"
+                >
+                  Voltar
+                </button>
+              </div>
             )}
           </div>
 
@@ -370,7 +452,7 @@ function OrderDetailModal({
             </div>
           </div>
 
-          {/* Totals — sem coupon_code, mostra coupon_id se existir */}
+          {/* Totals */}
           <div className="rounded-xl bg-[var(--tv-forest)] text-white p-5">
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between text-white/70">
@@ -398,7 +480,7 @@ function OrderDetailModal({
           {order.notes && (
             <div className="rounded-xl bg-[var(--tv-warning-lt)] border border-[var(--tv-terracota)]/15 p-4">
               <h4 className="text-xs font-semibold text-[var(--tv-terracota-dk)] mb-1">Observações do cliente</h4>
-              <p className="text-sm text-[var(--tv-stone-700)] italic">"{order.notes}"</p>
+              <p className="text-sm text-[var(--tv-stone-700)] italic">&ldquo;{order.notes}&rdquo;</p>
             </div>
           )}
 
@@ -411,6 +493,8 @@ function OrderDetailModal({
                   <div key={h.id} className="flex items-center gap-3 text-sm">
                     <div className={cn("h-2 w-2 rounded-full flex-shrink-0", STATUS_CONFIG[h.status]?.dot || "bg-[var(--tv-stone-300)]")} />
                     <span className="text-[var(--tv-stone-600)]">{STATUS_CONFIG[h.status]?.label || h.status}</span>
+                    {h.created_by_name && <span className="text-[var(--tv-stone-400)] text-xs">por {h.created_by_name}</span>}
+                    {h.notes && <span className="text-[var(--tv-stone-400)] text-xs italic">— {h.notes}</span>}
                     <span className="text-[var(--tv-stone-400)] text-xs ml-auto">{formatDateRelative(h.created_at)}</span>
                   </div>
                 ))}
@@ -478,7 +562,10 @@ function OrderDetailModal({
    CANCEL MODAL
    ──────────────────────────────────────────────────────────── */
 function CancelModal({ order, onConfirm, onCancel, isUpdating }: {
-  order: Order; onConfirm: (reason: string) => void; onCancel: () => void; isUpdating: boolean;
+  order: OrderWithProfile;
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+  isUpdating: boolean;
 }) {
   const [reason, setReason] = useState("");
   return (
@@ -513,63 +600,73 @@ function CancelModal({ order, onConfirm, onCancel, isUpdating }: {
    MAIN COMPONENT
    ──────────────────────────────────────────────────────────── */
 function AdminOrders() {
-  const orders = useOrdersStore((s) => s.orders);
-  const isLoading = useOrdersStore((s) => s.isLoading);
-  const error = useOrdersStore((s) => s.error);
-  const fetchOrders = useOrdersStore((s) => s.fetchOrders);
-  const updateStatus = useOrdersStore((s) => s.updateStatus);
-  const cancelOrder = useOrdersStore((s) => s.cancelOrder);
-  const profile = useAuthStore((s) => s.profile);
+  // Typed selectors to avoid implicit any
+  const orders: OrderWithProfile[] = useAdminOrdersStore((state) => state.orders);
+  const isLoading: boolean = useAdminOrdersStore((state) => state.isLoading);
+  const error: string | null = useAdminOrdersStore((state) => state.error);
+  const total: number = useAdminOrdersStore((state) => state.total);
+  const fetchOrders = useAdminOrdersStore((state) => state.fetchOrders);
+  const updateStatus = useAdminOrdersStore((state) => state.updateStatus);
+  const updatePayment = useAdminOrdersStore((state) => state.updatePayment);
+  const cancelOrder = useAdminOrdersStore((state) => state.cancelOrder);
+
+  const profile = useAuthStore((state) => state.profile);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "all">("all");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatus | "all">("all");
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("today");
-  const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
-  const [detailOrder, setDetailOrder] = useState<Order | null>(null);
-  const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
+  const [detailOrder, setDetailOrder] = useState<OrderWithProfile | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<OrderWithProfile | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+  const adminId = profile?.id || "";
+  const adminName = profile?.full_name || "Admin";
 
-  /* ── Filter by period ── */
-  const filteredByPeriod = useMemo(() => {
+  // Fetch orders on mount and when filters change
+  useEffect(() => {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfYesterday = new Date(startOfDay.getTime() - 24 * 60 * 60 * 1000);
     const startOfWeek = new Date(startOfDay.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    return orders.filter((o) => {
-      const d = new Date(o.created_at);
-      switch (periodFilter) {
-        case "today": return d >= startOfDay;
-        case "yesterday": return d >= startOfYesterday && d < startOfDay;
-        case "week": return d >= startOfWeek;
-        case "all": return true;
-      }
-    });
-  }, [orders, periodFilter]);
+    let dateFrom: string | null = null;
+    let dateTo: string | null = null;
 
-  /* ── Full filter + sort ── */
-  const filteredOrders = useMemo(() => {
-    let result = [...filteredByPeriod];
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter((o) =>
-        o.order_number.toLowerCase().includes(q) ||
-        o.user_id.toLowerCase().includes(q)
-      );
+    switch (periodFilter) {
+      case "today":
+        dateFrom = startOfDay.toISOString();
+        break;
+      case "yesterday":
+        dateFrom = startOfYesterday.toISOString();
+        dateTo = startOfDay.toISOString();
+        break;
+      case "week":
+        dateFrom = startOfWeek.toISOString();
+        break;
+      case "all":
+        dateFrom = null;
+        dateTo = null;
+        break;
     }
 
-    if (statusFilter !== "all") result = result.filter((o) => o.status === statusFilter);
-    if (paymentFilter !== "all") result = result.filter((o) => o.payment_method === paymentFilter);
+    fetchOrders({
+      status: statusFilter === "all" ? null : statusFilter,
+      paymentStatus: paymentStatusFilter === "all" ? null : paymentStatusFilter,
+      dateFrom,
+      dateTo,
+      search: searchQuery.trim() || null,
+    });
+  }, [fetchOrders, periodFilter, statusFilter, paymentStatusFilter, searchQuery]);
 
-    result.sort((a, b) => {
+  /* ── Sort (client-side para os já carregados) ── */
+  const filteredOrders = useMemo(() => {
+    const result = [...orders];
+
+    result.sort((a: OrderWithProfile, b: OrderWithProfile) => {
       let comparison = 0;
       switch (sortKey) {
         case "created_at": comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); break;
@@ -581,24 +678,27 @@ function AdminOrders() {
     });
 
     return result;
-  }, [filteredByPeriod, searchQuery, statusFilter, paymentFilter, sortKey, sortOrder]);
+  }, [orders, sortKey, sortOrder]);
 
-  /* ── Stats ── */
+  /* ── Stats (calculados dos pedidos carregados) ── */
   const stats = useMemo(() => {
-    const todayOrders = filteredByPeriod;
-    const revenue = todayOrders.reduce((sum, o) => sum + (o.status !== "cancelled" && o.status !== "refunded" ? o.total : 0), 0);
-    const pending = todayOrders.filter((o) => o.status === "pending").length;
-    const preparing = todayOrders.filter((o) => o.status === "preparing").length;
-    const outDelivery = todayOrders.filter((o) => o.status === "out_for_delivery").length;
-    const delivered = todayOrders.filter((o) => o.status === "delivered").length;
-    const cancelled = todayOrders.filter((o) => o.status === "cancelled").length;
-    return { total: todayOrders.length, revenue, pending, preparing, outDelivery, delivered, cancelled };
-  }, [filteredByPeriod]);
+    const revenue = orders.reduce((sum: number, o: OrderWithProfile) => {
+      return sum + (o.status !== "cancelled" && o.status !== "refunded" ? o.total : 0);
+    }, 0);
+    const pending = orders.filter((o: OrderWithProfile) => o.status === "pending").length;
+    const preparing = orders.filter((o: OrderWithProfile) => o.status === "preparing").length;
+    const outDelivery = orders.filter((o: OrderWithProfile) => o.status === "out_for_delivery").length;
+    const delivered = orders.filter((o: OrderWithProfile) => o.status === "delivered").length;
+    const cancelled = orders.filter((o: OrderWithProfile) => o.status === "cancelled").length;
+    const paid = orders.filter((o: OrderWithProfile) => o.payment_status === "paid").length;
+    return { total: orders.length, revenue, pending, preparing, outDelivery, delivered, cancelled, paid };
+  }, [orders]);
 
   /* ── Handlers ── */
   const handleUpdateStatus = useCallback(async (id: string, status: OrderStatus) => {
+    if (!adminId) { toast.error("Admin não identificado"); return; }
     setIsUpdating(true);
-    const success = await updateStatus(id, status);
+    const success = await updateStatus(id, status, adminId, adminName);
     setIsUpdating(false);
     if (success) {
       toast.success(`Status atualizado: ${STATUS_CONFIG[status].label}`);
@@ -606,11 +706,25 @@ function AdminOrders() {
     } else {
       toast.error("Erro ao atualizar status");
     }
-  }, [updateStatus]);
+  }, [updateStatus, adminId, adminName]);
+
+  const handleUpdatePayment = useCallback(async (id: string, paymentStatus: PaymentStatus) => {
+    if (!adminId) { toast.error("Admin não identificado"); return; }
+    setIsUpdating(true);
+    const success = await updatePayment(id, paymentStatus, adminId, adminName, `Pagamento marcado como ${PAYMENT_STATUS_CONFIG[paymentStatus].label}`);
+    setIsUpdating(false);
+    if (success) {
+      toast.success(`Pagamento atualizado: ${PAYMENT_STATUS_CONFIG[paymentStatus].label}`);
+      setDetailOrder(null);
+    } else {
+      toast.error("Erro ao atualizar pagamento");
+    }
+  }, [updatePayment, adminId, adminName]);
 
   const handleCancel = useCallback(async (id: string, reason?: string) => {
+    if (!adminId) { toast.error("Admin não identificado"); return; }
     setIsUpdating(true);
-    const success = await cancelOrder(id);
+    const success = await cancelOrder(id, adminId, adminName, reason);
     setIsUpdating(false);
     if (success) {
       toast.success(reason ? `Pedido cancelado: ${reason}` : "Pedido cancelado");
@@ -619,7 +733,7 @@ function AdminOrders() {
     } else {
       toast.error("Erro ao cancelar pedido");
     }
-  }, [cancelOrder]);
+  }, [cancelOrder, adminId, adminName]);
 
   const toggleSort = useCallback((key: SortKey) => {
     if (sortKey === key) setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
@@ -627,19 +741,22 @@ function AdminOrders() {
   }, [sortKey]);
 
   const exportCSV = useCallback(() => {
-    const headers = ["Pedido", "Data", "Cliente ID", "Status", "Pagamento", "Subtotal", "Entrega", "Desconto", "Total", "Observacoes"];
-    const rows = filteredOrders.map((o) => [
-      o.order_number,
-      formatDateTime(o.created_at),
-      o.user_id,
-      STATUS_CONFIG[o.status].label,
-      PAYMENT_LABELS[o.payment_method] || o.payment_method,
-      o.subtotal,
-      o.delivery_fee,
-      o.discount,
-      o.total,
-      o.notes || "",
-    ]);
+    const headers = ["Pedido", "Data", "Cliente", "Email", "Status", "Pagamento", "Subtotal", "Entrega", "Desconto", "Total", "Observacoes"];
+    const rows = filteredOrders.map((o: OrderWithProfile) => {
+      return [
+        o.order_number,
+        formatDateTime(o.created_at),
+        o.profile?.full_name || "",
+        o.profile?.email || "",
+        STATUS_CONFIG[o.status].label,
+        PAYMENT_LABELS[o.payment_method] || o.payment_method,
+        o.subtotal,
+        o.delivery_fee,
+        o.discount,
+        o.total,
+        o.notes || "",
+      ];
+    });
     const csv = [headers.join(";"), ...rows.map((r) => r.join(";"))].join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -659,7 +776,7 @@ function AdminOrders() {
         <AlertTriangle className="h-10 w-10 text-[var(--tv-terracota)] mb-3" />
         <h3 className="font-serif text-xl text-[var(--tv-forest)]">Erro ao carregar pedidos</h3>
         <p className="mt-2 text-sm text-[var(--tv-stone-500)]">{error}</p>
-        <button onClick={fetchOrders} className="tv-btn tv-btn--primary mt-4 gap-2">
+        <button onClick={() => fetchOrders()} className="tv-btn tv-btn--primary mt-4 gap-2">
           <RotateCcw className="h-4 w-4" /> Tentar novamente
         </button>
       </div>
@@ -683,7 +800,7 @@ function AdminOrders() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         {[
           { label: "Total", value: stats.total, color: "forest" as const, icon: Hash },
           { label: "Pendentes", value: stats.pending, color: "terracotta" as const, icon: Clock, alert: stats.pending > 0 },
@@ -691,6 +808,7 @@ function AdminOrders() {
           { label: "Em rota", value: stats.outDelivery, color: "info" as const, icon: TruckIcon },
           { label: "Entregues", value: stats.delivered, color: "success" as const, icon: CheckCheck },
           { label: "Cancelados", value: stats.cancelled, color: "danger" as const, icon: Ban },
+          { label: "Pagos", value: stats.paid, color: "success" as const, icon: CircleDollarSign },
         ].map((stat) => (
           <div key={stat.label} className={cn("rounded-xl border p-3 transition-all",
             stat.alert ? "bg-[var(--tv-warning-lt)] border-[var(--tv-terracota)]/20" : "bg-white border-[var(--tv-stone-200)]"
@@ -742,7 +860,7 @@ function AdminOrders() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--tv-stone-400)] pointer-events-none" />
           <input
             type="text"
-            placeholder="Buscar por nº do pedido ou ID do cliente..."
+            placeholder="Buscar por nº do pedido ou nome do cliente..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="tv-input pl-10 w-full"
@@ -758,7 +876,7 @@ function AdminOrders() {
           className={cn("tv-btn tv-btn--secondary tv-btn--sm gap-1.5", showFilters && "border-[var(--tv-moss-lt)] text-[var(--tv-moss)]")}
         >
           <Filter className="h-3.5 w-3.5" /> Filtros
-          {(statusFilter !== "all" || paymentFilter !== "all") && <span className="h-2 w-2 rounded-full bg-[var(--tv-moss)]" />}
+          {(statusFilter !== "all" || paymentStatusFilter !== "all") && <span className="h-2 w-2 rounded-full bg-[var(--tv-moss)]" />}
         </button>
         <div className="relative">
           <select
@@ -781,7 +899,7 @@ function AdminOrders() {
       {showFilters && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl bg-[var(--tv-cream)] border border-[var(--tv-stone-200)] animate-fade-in">
           <div>
-            <label className="tv-label tv-label--sm">Status</label>
+            <label className="tv-label tv-label--sm">Status do pedido</label>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as OrderStatus | "all")} className="tv-input tv-input--sm mt-1">
               <option value="all">Todos os status</option>
               {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
@@ -790,22 +908,22 @@ function AdminOrders() {
             </select>
           </div>
           <div>
-            <label className="tv-label tv-label--sm">Pagamento</label>
-            <select value={paymentFilter} onChange={(e) => setPaymentFilter(e.target.value)} className="tv-input tv-input--sm mt-1">
+            <label className="tv-label tv-label--sm">Status do pagamento</label>
+            <select value={paymentStatusFilter} onChange={(e) => setPaymentStatusFilter(e.target.value as PaymentStatus | "all")} className="tv-input tv-input--sm mt-1">
               <option value="all">Todos</option>
-              <option value="pix">PIX</option>
-              <option value="cash">Dinheiro</option>
-              <option value="card">Cartão</option>
-              <option value="mercado_pago">Mercado Pago</option>
+              <option value="pending">Pendente</option>
+              <option value="paid">Pago</option>
+              <option value="failed">Falhou</option>
+              <option value="refunded">Reembolsado</option>
             </select>
           </div>
         </div>
       )}
 
       {/* Results count */}
-      {filteredOrders.length !== filteredByPeriod.length && (
+      {filteredOrders.length !== total && (
         <p className="text-xs text-[var(--tv-stone-400)]">
-          Mostrando {filteredOrders.length} de {filteredByPeriod.length} pedidos{searchQuery && <span> para &quot;{searchQuery}&quot;</span>}
+          Mostrando {filteredOrders.length} de {total} pedidos{searchQuery && <span> para &quot;{searchQuery}&quot;</span>}
         </p>
       )}
 
@@ -836,9 +954,12 @@ function AdminOrders() {
                 </tr>
               </thead>
               <tbody>
-                {filteredOrders.map((order) => {
+                {filteredOrders.map((order: OrderWithProfile) => {
                   const cfg = STATUS_CONFIG[order.status];
                   const NextIcon = cfg.next ? STATUS_CONFIG[cfg.next].icon : null;
+                  const payCfg = PAYMENT_STATUS_CONFIG[order.payment_status];
+                  const customerName = order.profile?.full_name || "Cliente não identificado";
+
                   return (
                     <tr key={order.id} className="group cursor-pointer" onClick={() => setDetailOrder(order)}>
                       <td>
@@ -857,19 +978,26 @@ function AdminOrders() {
                         <div className="text-[10px] text-[var(--tv-stone-400)]">{formatDateRelative(order.created_at)}</div>
                       </td>
                       <td>
-                        <div className="text-xs text-[var(--tv-stone-500)] font-mono">{order.user_id?.slice(0, 8)}...</div>
+                        <div className="text-sm text-[var(--tv-stone-800)] font-medium">{customerName}</div>
+                        <div className="text-[10px] text-[var(--tv-stone-400)] font-mono">{order.user_id?.slice(0, 8)}...</div>
                       </td>
                       <td>
                         <span className="text-sm font-semibold text-[var(--tv-moss)]">{formatCurrency(order.total)}</span>
                         {order.discount > 0 && <span className="text-[10px] text-[var(--tv-stone-400)] ml-1">−{formatCurrency(order.discount)}</span>}
                       </td>
                       <td>
-                        <div className="flex items-center gap-1.5">
-                          {(() => {
-                            const Icon = PAYMENT_ICONS[order.payment_method] || CreditCard;
-                            return <Icon className="h-3.5 w-3.5 text-[var(--tv-stone-400)]" />;
-                          })()}
-                          <span className="text-xs text-[var(--tv-stone-600)]">{PAYMENT_LABELS[order.payment_method] || order.payment_method}</span>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1.5">
+                            {(() => {
+                              const Icon = PAYMENT_ICONS[order.payment_method] || CreditCard;
+                              return <Icon className="h-3.5 w-3.5 text-[var(--tv-stone-400)]" />;
+                            })()}
+                            <span className="text-xs text-[var(--tv-stone-600)]">{PAYMENT_LABELS[order.payment_method] || order.payment_method}</span>
+                          </div>
+                          <span className={cn("tv-status text-[9px] self-start", payCfg.bg, payCfg.color)}>
+                            <span className={cn("h-1 w-1 rounded-full", payCfg.dot)} />
+                            {payCfg.label}
+                          </span>
                         </div>
                       </td>
                       <td>
@@ -923,8 +1051,11 @@ function AdminOrders() {
           order={detailOrder}
           onClose={() => setDetailOrder(null)}
           onUpdateStatus={handleUpdateStatus}
+          onUpdatePayment={handleUpdatePayment}
           onCancel={handleCancel}
           isUpdating={isUpdating}
+          adminId={adminId}
+          adminName={adminName}
         />
       )}
 

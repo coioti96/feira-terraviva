@@ -1,221 +1,187 @@
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { supabase, supabaseConfigured } from "@/lib/supabase";
-import type { Order, OrderStatus, OrderStatusHistory } from "@/types";
+// ============================================================
+// STORE — Admin Orders (Zustand)
+// Feirinha Orgânica Terra Viva · Enterprise
+// ============================================================
 
-interface OrdersState {
+import { create } from "zustand";
+import {
+  getAllOrders,
+  getOrderDetailAdmin,
+  updateOrderStatus,
+  updatePaymentStatus,
+  cancelOrderAdmin,
+} from "@/utils/server-function/admin-orders";
+import type { Order, OrderStatus, PaymentStatus } from "@/types";
+
+/* ────────────────────────────────────────────────────────────
+   STATE INTERFACE
+   ──────────────────────────────────────────────────────────── */
+interface AdminOrdersState {
   orders: Order[];
   isLoading: boolean;
   error: string | null;
-  fetchOrders: () => Promise<void>;
-  fetchUserOrders: (userId: string) => Promise<void>;
-  createOrder: (order: Omit<Order, "id" | "order_number" | "created_at" | "updated_at">) => Promise<Order | null>;
-  updateStatus: (id: string, status: OrderStatus) => Promise<boolean>;
-  cancelOrder: (id: string) => Promise<boolean>;
+  total: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+
+  fetchOrders: (params?: {
+    status?: string | null;
+    paymentStatus?: string | null;
+    dateFrom?: string | null;
+    dateTo?: string | null;
+    search?: string | null;
+    page?: number;
+    perPage?: number;
+  }) => Promise<void>;
+
+  updateStatus: (
+    orderId: string,
+    status: OrderStatus,
+    adminId: string,
+    adminName: string,
+    notes?: string | null
+  ) => Promise<boolean>;
+
+  updatePayment: (
+    orderId: string,
+    paymentStatus: PaymentStatus,
+    adminId: string,
+    adminName: string,
+    notes?: string | null
+  ) => Promise<boolean>;
+
+  cancelOrder: (
+    orderId: string,
+    adminId: string,
+    adminName: string,
+    reason?: string | null
+  ) => Promise<boolean>;
+
+  refreshOrders: () => Promise<void>;
 }
 
-export const useOrdersStore = create<OrdersState>()(
-  persist(
-    (set, get) => ({
-      orders: [],
-      isLoading: false,
-      error: null,
+/* ────────────────────────────────────────────────────────────
+   STORE
+   ──────────────────────────────────────────────────────────── */
+export const useAdminOrdersStore = create<AdminOrdersState>()((set, get) => ({
+  orders: [],
+  isLoading: false,
+  error: null,
+  total: 0,
+  page: 1,
+  perPage: 50,
+  totalPages: 0,
 
-      async fetchOrders() {
-        if (!supabaseConfigured || !supabase) {
-          set({ error: "Supabase não configurado" });
-          return;
-        }
-        set({ isLoading: true, error: null });
-        try {
-          const { data, error } = await supabase
-            .from("orders")
-            .select("*, order_items(*), order_status_history(*)")
-            .order("created_at", { ascending: false });
-          if (error) throw error;
-          set({ orders: data || [] });
-        } catch (err) {
-          set({ error: err instanceof Error ? err.message : "Erro ao carregar pedidos" });
-        } finally {
-          set({ isLoading: false });
-        }
-      },
-
-      async fetchUserOrders(userId) {
-        if (!supabaseConfigured || !supabase) return;
-        set({ isLoading: true, error: null });
-        try {
-          const { data, error } = await supabase
-            .from("orders")
-            .select("*, order_items(*), order_status_history(*)")
-            .eq("user_id", userId)
-            .order("created_at", { ascending: false });
-          if (error) throw error;
-          set({ orders: data || [] });
-        } catch (err) {
-          set({ error: err instanceof Error ? err.message : "Erro ao carregar pedidos" });
-        } finally {
-          set({ isLoading: false });
-        }
-      },
-
-      async createOrder(orderData) {
-  if (!supabaseConfigured || !supabase) return null;
-  try {
-    // 1. Gera número de pedido único via RPC
-    const { data: orderNumber, error: fnError } = await supabase.rpc("get_next_order_number");
-    if (fnError) throw fnError;
-
-    // 2. Se tem cupom, incrementa current_uses atomicamente via RPC
-    let couponIncremented = false;
-    const couponId = orderData.coupon_id;
-
-    if (couponId) {
-      const { error: incError } = await supabase.rpc("increment_coupon_uses", {
-        coupon_id: couponId,
+  async fetchOrders(params = {}) {
+    set({ isLoading: true, error: null });
+    try {
+      const result = await getAllOrders({
+        data: {
+          status: params.status ?? null,
+          paymentStatus: params.paymentStatus ?? null,
+          dateFrom: params.dateFrom ?? null,
+          dateTo: params.dateTo ?? null,
+          search: params.search ?? null,
+          page: params.page ?? 1,
+          perPage: params.perPage ?? 50,
+        },
       });
-      if (incError) {
-        console.warn("[createOrder] Cupom inválido no momento da criação:", incError.message);
-        orderData.coupon_id = null;
-        orderData.discount = 0;
-        orderData.total = orderData.subtotal + orderData.delivery_fee;
+
+      if (result.success) {
+        set({
+          orders: (result.orders as Order[]) ?? [],
+          total: result.total ?? 0,
+          page: result.page ?? 1,
+          perPage: result.perPage ?? 50,
+          totalPages: result.totalPages ?? 0,
+        });
       } else {
-        couponIncremented = true;
+        set({
+          error: result.error || "Erro ao carregar pedidos",
+          orders: [],
+          total: 0,
+          totalPages: 0,
+        });
       }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Erro ao carregar pedidos";
+      set({ error: message, orders: [], total: 0, totalPages: 0 });
+    } finally {
+      set({ isLoading: false });
     }
+  },
 
-    // 3. Payload EXATO que o banco espera (sem campos que não existem)
-    const payload = {
-      order_number: orderNumber,
-      user_id: orderData.user_id,
-      status: orderData.status,
-      payment_status: orderData.payment_status,
-      payment_method: orderData.payment_method,
-      payment_id: orderData.payment_id,
-      subtotal: orderData.subtotal,
-      delivery_fee: orderData.delivery_fee,
-      discount: orderData.discount,
-      total: orderData.total,
-      coupon_id: orderData.coupon_id,
-      delivery_type: orderData.delivery_type,
-      address: orderData.address,
-      change_for: orderData.change_for,
-      notes: orderData.notes,
-    };
-
-    // 4. Insere o pedido
-    const { data, error } = await supabase
-      .from("orders")
-      .insert([payload])
-      .select()
-      .single();
-
-    if (error) {
-      // Rollback: decrementa current_uses se tinha incrementado
-      if (couponIncremented && couponId) {
-        try {
-          await supabase.rpc("decrement_coupon_uses", {
-            coupon_id: couponId,
-          });
-        } catch (rollbackErr) {
-          console.error("[createOrder] Rollback falhou:", rollbackErr instanceof Error ? rollbackErr.message : rollbackErr);
-        }
+  async updateStatus(orderId, status, adminId, adminName, notes) {
+    try {
+      const result = await updateOrderStatus({
+        data: { orderId, status, adminId, adminName, notes: notes ?? null },
+      });
+      if (result.success) {
+        await get().refreshOrders();
+        return true;
       }
-      throw error;
+      set({ error: result.error || "Erro ao atualizar status" });
+      return false;
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Erro ao atualizar status";
+      set({ error: message });
+      return false;
     }
+  },
 
-    // 5. Insere order_items
-    if (data && orderData.items) {
-      const orderItems = orderData.items.map((item) => ({
-        order_id: data.id,
-        product_id: item.product_id,
-        product_name: item.product_name,
-        product_image: item.product_image,
-        unit_type: item.unit_type,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        total_price: item.total_price,
-      }));
-
-      const { error: itemsError } = await supabase
-        .from("order_items")
-        .insert(orderItems);
-
-      if (itemsError) {
-        console.error("[createOrder] Erro ao inserir items:", itemsError);
+  async updatePayment(orderId, paymentStatus, adminId, adminName, notes) {
+    try {
+      const result = await updatePaymentStatus({
+        data: {
+          orderId,
+          paymentStatus,
+          adminId,
+          adminName,
+          notes: notes ?? null,
+        },
+      });
+      if (result.success) {
+        await get().refreshOrders();
+        return true;
       }
+      set({ error: result.error || "Erro ao atualizar pagamento" });
+      return false;
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Erro ao atualizar pagamento";
+      set({ error: message });
+      return false;
     }
+  },
 
-    // 6. Atualiza estado local
-    if (data) {
-      set((s) => ({ orders: [data, ...s.orders] }));
+  async cancelOrder(orderId, adminId, adminName, reason) {
+    try {
+      const result = await cancelOrderAdmin({
+        data: {
+          orderId,
+          adminId,
+          adminName,
+          reason: reason ?? null,
+        },
+      });
+      if (result.success) {
+        await get().refreshOrders();
+        return true;
+      }
+      set({ error: result.error || "Erro ao cancelar pedido" });
+      return false;
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Erro ao cancelar pedido";
+      set({ error: message });
+      return false;
     }
-    return data;
-  } catch (err) {
-    console.error("[createOrder] Erro:", err);
-    set({ error: err instanceof Error ? err.message : "Erro ao criar pedido" });
-    return null;
-  }
-},
+  },
 
-      async updateStatus(id, status) {
-        if (!supabaseConfigured || !supabase) return false;
-        try {
-          const { error } = await supabase
-            .from("orders")
-            .update({ status, updated_at: new Date().toISOString() })
-            .eq("id", id);
-          if (error) throw error;
-
-          const { error: historyError } = await supabase.from("order_status_history").insert([
-            {
-              order_id: id,
-              status,
-              notes: null,
-              created_by: null,
-              created_by_name: null,
-              created_at: new Date().toISOString(),
-            },
-          ]);
-          if (historyError) throw historyError;
-
-          const newHistoryEntry: OrderStatusHistory = {
-            id: crypto.randomUUID(),
-            order_id: id,
-            status,
-            notes: null,
-            created_by: null,
-            created_by_name: null,
-            created_at: new Date().toISOString(),
-          };
-
-          set((s) => ({
-            orders: s.orders.map((o) =>
-              o.id === id
-                ? {
-                    ...o,
-                    status,
-                    updated_at: new Date().toISOString(),
-                    history: [...(o.history || []), newHistoryEntry],
-                  }
-                : o,
-            ),
-          }));
-          return true;
-        } catch (err) {
-          set({ error: err instanceof Error ? err.message : "Erro ao atualizar status" });
-          return false;
-        }
-      },
-
-      async cancelOrder(id) {
-        return get().updateStatus(id, "cancelled");
-      },
-    }),
-    { name: "terraviva-orders-cache" },
-  ),
-);
-
-export function nextOrderNumber(seq: number) {
-  return `ORD-${String(seq).padStart(6, "0")}`;
-}
+  async refreshOrders() {
+    await get().fetchOrders();
+  },
+}));
