@@ -8,7 +8,7 @@ import {
   Hash, ShoppingBag, TrendingUp, TrendingDown, DollarSign, Truck as TruckIcon,
   Ban, CheckCheck, ClipboardList, ChevronRight, Copy, Wallet, CircleDollarSign
 } from "lucide-react";
-import { useAdminOrdersStore } from "@/stores/orders";
+import { useAdminOrdersStore } from "@/stores/admin-orders-store";
 import { useAuthStore } from "@/stores/auth";
 import {
   formatCurrency, formatDateTime, formatDateShort, formatDateRelative,
