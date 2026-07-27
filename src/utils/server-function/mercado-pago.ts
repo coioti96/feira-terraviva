@@ -62,10 +62,8 @@ function generateState(): string {
 }
 
 function getBaseUrl(): string {
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  return "http://localhost:8080";
+  // Usa o domínio principal, nunca o interno do Vercel
+  return "https://feiraterraviva.vercel.app";
 }
 
 async function getSettingsWithOAuth(admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>) {
