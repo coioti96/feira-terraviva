@@ -63,7 +63,8 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
           </motion.span>
         )}
         {product.tags?.includes("orgânico") && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--tv-moss)] text-white px-2.5 py-1 text-[11px] font-semibold shadow-lg"
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--tv-moss)] text-white px-2.5 py-1 text-[11px] font-semibold shadow-lg"
             style={{ boxShadow: "0 4px 16px rgb(45 90 39 / 0.30)" }}
           >
             <Leaf className="h-3 w-3" />
@@ -71,7 +72,8 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
           </span>
         )}
         {product.is_featured && (
-          <span className="inline-flex items-center rounded-full bg-[var(--tv-gold)] text-white px-2.5 py-1 text-[11px] font-semibold shadow-lg"
+          <span
+            className="inline-flex items-center rounded-full bg-[var(--tv-gold)] text-white px-2.5 py-1 text-[11px] font-semibold shadow-lg"
             style={{ boxShadow: "var(--shadow-gold)" }}
           >
             Destaque
@@ -79,25 +81,66 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
         )}
       </div>
 
-      {/* Imagem redonda */}
+      {/* Imagem — centralizada, sem vazar para o lado */}
       <Link
         to="/produto/$slug"
         params={{ slug: product.slug }}
-        className="block relative pt-6 pb-3 px-6 bg-gradient-to-b from-[var(--tv-cream)] to-[var(--tv-linen)]"
+        className="block w-full"
+        style={{ background: "linear-gradient(to bottom, var(--tv-cream), var(--tv-linen))" }}
       >
-        <div className="mx-auto h-36 w-36 sm:h-40 sm:w-40 rounded-full overflow-hidden ring-4 ring-[var(--tv-moss)]/10 shadow-md group-hover:ring-[var(--tv-moss)]/20 transition-all duration-500">
-          {product.images?.[0] ? (
-            <img
-              src={product.images[0]}
-              alt={product.name}
-              loading="lazy"
-              className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500 ease-out"
-            />
-          ) : (
-            <div className="h-full w-full flex items-center justify-center bg-[var(--tv-stone-100)]">
-              <Leaf className="h-10 w-10 text-[var(--tv-stone-300)]" />
-            </div>
-          )}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "100%",
+            paddingTop: "1.25rem",
+            paddingBottom: "0.75rem",
+          }}
+        >
+          <div
+            style={{
+              width: "clamp(100px, 40%, 148px)",
+              aspectRatio: "1",
+              borderRadius: "50%",
+              overflow: "hidden",
+              flexShrink: 0,
+              boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+              border: "3px solid rgba(45,90,39,0.10)",
+              transition: "border-color 0.3s ease, box-shadow 0.3s ease",
+            }}
+            className="group-hover:border-[var(--tv-moss-lt)] group-hover:shadow-[0_6px_24px_rgba(45,90,39,0.18)]"
+          >
+            {product.images?.[0] ? (
+              <img
+                src={product.images[0]}
+                alt={product.name}
+                loading="lazy"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  objectPosition: "center",
+                  transition: "transform 0.5s ease",
+                  display: "block",
+                }}
+                className="group-hover:scale-110"
+              />
+            ) : (
+              <div
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "var(--tv-stone-100)",
+                }}
+              >
+                <Leaf className="h-10 w-10 text-[var(--tv-stone-300)]" />
+              </div>
+            )}
+          </div>
         </div>
       </Link>
 
@@ -118,24 +161,17 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
                 {formatCurrency(oldPrice)}
               </span>
             )}
-            <span
-              className={cn(
-                "text-lg font-bold font-serif",
-                oldPrice ? "text-[var(--tv-terracota)]" : "text-[var(--tv-moss)]",
-              )}
-            >
+            <span className={cn("text-lg font-bold font-serif", oldPrice ? "text-[var(--tv-terracota)]" : "text-[var(--tv-moss)]")}>
               {formatCurrency(price)}
             </span>
             <span className="text-[11px] text-[var(--tv-stone-400)]">/ {unitLabel(defaultUnit)}</span>
           </div>
 
-          {/* Botão */}
           <Button
             size="sm"
             className={cn(
               "mt-3 w-full rounded-full gap-1.5 h-10 text-[13px] font-semibold transition-all duration-200",
-              "bg-[var(--tv-moss)] hover:bg-[var(--tv-moss-mid)] text-white",
-              "active:scale-[0.98]",
+              "bg-[var(--tv-moss)] hover:bg-[var(--tv-moss-mid)] text-white active:scale-[0.98]",
             )}
             style={{ boxShadow: "var(--shadow-forest)" }}
             onClick={handleAddToCart}
@@ -152,8 +188,8 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
 export function ProductCardSkeleton() {
   return (
     <div className="flex flex-col bg-[var(--tv-white)] rounded-[var(--r-xl)] border border-[var(--tv-stone-200)] overflow-hidden">
-      <div className="pt-6 pb-3 px-6 flex justify-center">
-        <div className="h-36 w-36 sm:h-40 sm:w-40 rounded-full bg-[var(--tv-stone-100)] animate-pulse" />
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", paddingTop: "1.25rem", paddingBottom: "0.75rem", background: "linear-gradient(to bottom, var(--tv-cream), var(--tv-linen))" }}>
+        <div style={{ width: "clamp(100px, 40%, 148px)", aspectRatio: "1", borderRadius: "50%", background: "var(--tv-stone-200)" }} className="animate-pulse" />
       </div>
       <div className="p-4 space-y-3">
         <div className="h-4 bg-[var(--tv-stone-200)] rounded animate-pulse w-3/4" />

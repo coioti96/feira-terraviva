@@ -60,7 +60,6 @@ export const Route = createFileRoute("/_authenticated")({
     const store = useAuthStore.getState();
 
     // Sempre revalida o profile do Supabase
-    // Isso garante que o role está atualizado (não stale do cache)
     try {
       await store.fetchProfile();
     } catch (err) {
@@ -71,8 +70,11 @@ export const Route = createFileRoute("/_authenticated")({
     const profile = useAuthStore.getState().profile;
 
     if (!profile) {
-      // Não está logado → redireciona para login com redirect de volta
-      const redirectPath = location.pathname + (location.search || "");
+      // Não está logado → redireciona para login
+      // ✅ location.search é um objeto no TanStack Router v1+
+      // Não podemos concatenar diretamente — usamos só o pathname
+      const redirectPath = location.pathname;
+      
       throw redirect({
         to: "/auth/login",
         search: { redirect: redirectPath },
@@ -97,7 +99,5 @@ export const Route = createFileRoute("/_authenticated")({
 // ─────────────────────────────────────────────────────────────
 
 function AuthenticatedLayout() {
-  // Os dados do beforeLoad estão disponíveis via Route.useRouteContext()
-  // Mas não precisamos usá-los aqui — o Outlet renderiza os filhos
   return <Outlet />;
 }

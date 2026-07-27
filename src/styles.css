@@ -2237,3 +2237,40 @@
   .no-print { display: none !important; }
   body { background: white !important; color: black !important; }
 }
+/* ─────────────────────────────────────────────────────────
+   ADICIONAR ao final do app.css (styles.css)
+   Grade de categorias da home — responsiva e compacta
+───────────────────────────────────────────────────────── */
+ 
+/* Categorias home: 5 colunas no mobile, 7 no tablet, auto no desktop */
+.tv-cat-grid-home {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+ 
+@media (min-width: 480px) {
+  .tv-cat-grid-home {
+    grid-template-columns: repeat(7, 1fr);
+    gap: 10px;
+  }
+}
+ 
+@media (min-width: 768px) {
+  .tv-cat-grid-home {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 12px;
+  }
+}
+ 
+/* Botão tv-btn tamanho lg */
+.tv-btn--lg {
+  padding: 0.875rem 1.875rem;
+  font-size: var(--text-base);
+}
+ 
+/* Pulse do dot de status */
+@keyframes tv-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.6; transform: scale(1.4); }
+}
