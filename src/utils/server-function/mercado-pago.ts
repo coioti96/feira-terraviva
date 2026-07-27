@@ -34,7 +34,6 @@ interface MPUserResponse {
   last_name: string;
 }
 
-// Settings com campos temporários de OAuth (não estão no StoreSettings principal)
 interface SettingsWithOAuth extends StoreSettings {
   mercado_pago_state: string | null;
   mercado_pago_state_expires: string | null;
@@ -54,30 +53,23 @@ export interface MPQrCodeResponse {
   expiration_date: string;
 }
 
-// ── HELPERS ────────────────────────────────────────────────
+// ── HELPERS ──────────────────────────────────────────────
 
-/** Gera state aleatório para CSRF protection */
 function generateState(): string {
   const arr = new Uint8Array(32);
   crypto.getRandomValues(arr);
   return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Retorna a URL base da aplicação */
 function getBaseUrl(): string {
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
-  // Local development — porta 8080
   return "http://localhost:8080";
 }
 
-/** Busca settings do banco com campos OAuth */
 async function getSettingsWithOAuth(admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>) {
-  const { data, error } = await admin
-    .from("store_settings")
-    .select("*")
-    .single();
+  const { data, error } = await admin.from("store_settings").select("*").single();
   if (error || !data) return null;
   return data as SettingsWithOAuth;
 }
@@ -98,24 +90,15 @@ export const getMercadoPagoAuthUrl = createServerFn({ method: "POST" })
     const state = generateState();
     const redirectUri = `${getBaseUrl()}/api/mercado-pago/callback`;
 
-    // Busca settings para ter o ID
-    const { data: settings } = await admin
-      .from("store_settings")
-      .select("id")
-      .single();
-
+    const { data: settings } = await admin.from("store_settings").select("id").single();
     if (!settings?.id) {
       return { url: "", state: "", error: "Configurações não encontradas" };
     }
 
-    // Salva state temporariamente no banco (expires em 10 min)
-    await admin
-      .from("store_settings")
-      .update({ 
-        mercado_pago_state: state,
-        mercado_pago_state_expires: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-      })
-      .eq("id", settings.id);
+    await admin.from("store_settings").update({
+      mercado_pago_state: state,
+      mercado_pago_state_expires: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    }).eq("id", settings.id);
 
     const params = new URLSearchParams({
       client_id: MP_CLIENT_ID,
@@ -131,30 +114,26 @@ export const getMercadoPagoAuthUrl = createServerFn({ method: "POST" })
     };
   });
 
-// ── 2. TROCAR CODE POR TOKENS (callback) ───────────────────
+// ── 2. TROCAR CODE POR TOKENS ─────────────────────────────
 
 export const exchangeMercadoPagoCode = createServerFn({ method: "POST" })
   .validator((data: { code: string; state: string }) => data)
   .handler(async ({ data }): Promise<{ success: boolean; error?: string }> => {
     const { code, state } = data;
-
     const admin = getSupabaseAdmin();
     if (!admin) return { success: false, error: "Serviço indisponível" };
 
     try {
-      // Valida state (CSRF)
       const settings = await getSettingsWithOAuth(admin);
       if (!settings || settings.mercado_pago_state !== state) {
         return { success: false, error: "State inválido ou expirado" };
       }
 
-      // Limpa state
-      await admin
-        .from("store_settings")
-        .update({ mercado_pago_state: null, mercado_pago_state_expires: null })
-        .eq("id", settings.id);
+      await admin.from("store_settings").update({
+        mercado_pago_state: null,
+        mercado_pago_state_expires: null,
+      }).eq("id", settings.id);
 
-      // Troca code por tokens
       const redirectUri = `${getBaseUrl()}/api/mercado-pago/callback`;
 
       const tokenRes = await fetch(MP_AUTH_URL, {
@@ -176,7 +155,6 @@ export const exchangeMercadoPagoCode = createServerFn({ method: "POST" })
 
       const tokenData = (await tokenRes.json()) as MPTokenResponse;
 
-      // Busca dados da conta
       const userRes = await fetch(`${MP_API_URL}/users/me`, {
         headers: { Authorization: `Bearer ${tokenData.access_token}` },
       });
@@ -190,17 +168,13 @@ export const exchangeMercadoPagoCode = createServerFn({ method: "POST" })
         accountEmail = userData.email;
       }
 
-      // Salva tokens no banco (bypass RLS com admin)
-      const { error: updateError } = await admin
-        .from("store_settings")
-        .update({
-          mercado_pago_enabled: true,
-          mercado_pago_access_token: tokenData.access_token,
-          mercado_pago_public_key: tokenData.public_key,
-          mercado_pago_refresh_token: tokenData.refresh_token,
-          mercado_pago_user_id: String(tokenData.user_id),
-        })
-        .eq("id", settings.id);
+      const { error: updateError } = await admin.from("store_settings").update({
+        mercado_pago_enabled: true,
+        mercado_pago_access_token: tokenData.access_token,
+        mercado_pago_public_key: tokenData.public_key,
+        mercado_pago_refresh_token: tokenData.refresh_token,
+        mercado_pago_user_id: String(tokenData.user_id),
+      }).eq("id", settings.id);
 
       if (updateError) throw updateError;
 
@@ -212,7 +186,7 @@ export const exchangeMercadoPagoCode = createServerFn({ method: "POST" })
     }
   });
 
-// ── 3. STATUS DA CONEXÃO ───────────────────────────────────
+// ── 3. STATUS DA CONEXÃO ─────────────────────────────────
 
 export const getMercadoPagoStatus = createServerFn({ method: "POST" })
   .handler(async (): Promise<MPConnectionStatus & { error?: string }> => {
@@ -224,14 +198,12 @@ export const getMercadoPagoStatus = createServerFn({ method: "POST" })
       return { connected: false };
     }
 
-    // Opcional: valida se token ainda funciona
     try {
       const res = await fetch(`${MP_API_URL}/users/me`, {
         headers: { Authorization: `Bearer ${settings.mercado_pago_access_token}` },
       });
 
       if (!res.ok) {
-        // Token expirado — tenta refresh
         const refreshed = await refreshMercadoPagoToken(admin, settings);
         if (!refreshed) {
           await disconnectMercadoPagoInternal(admin, settings.id);
@@ -246,7 +218,7 @@ export const getMercadoPagoStatus = createServerFn({ method: "POST" })
         account_email: userData.email,
       };
     } catch {
-      return { connected: true }; // Assume conectado se não conseguir validar
+      return { connected: true };
     }
   });
 
@@ -268,18 +240,15 @@ async function disconnectMercadoPagoInternal(
   settingsId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { error } = await admin
-      .from("store_settings")
-      .update({
-        mercado_pago_enabled: false,
-        mercado_pago_access_token: null,
-        mercado_pago_public_key: null,
-        mercado_pago_refresh_token: null,
-        mercado_pago_user_id: null,
-        mercado_pago_state: null,
-        mercado_pago_state_expires: null,
-      })
-      .eq("id", settingsId);
+    const { error } = await admin.from("store_settings").update({
+      mercado_pago_enabled: false,
+      mercado_pago_access_token: null,
+      mercado_pago_public_key: null,
+      mercado_pago_refresh_token: null,
+      mercado_pago_user_id: null,
+      mercado_pago_state: null,
+      mercado_pago_state_expires: null,
+    }).eq("id", settingsId);
 
     if (error) throw error;
     return { success: true };
@@ -313,14 +282,11 @@ async function refreshMercadoPagoToken(
 
     const data = (await res.json()) as MPTokenResponse;
 
-    await admin
-      .from("store_settings")
-      .update({
-        mercado_pago_access_token: data.access_token,
-        mercado_pago_refresh_token: data.refresh_token,
-        mercado_pago_public_key: data.public_key,
-      })
-      .eq("id", settings.id);
+    await admin.from("store_settings").update({
+      mercado_pago_access_token: data.access_token,
+      mercado_pago_refresh_token: data.refresh_token,
+      mercado_pago_public_key: data.public_key,
+    }).eq("id", settings.id);
 
     return true;
   } catch (err) {
@@ -332,14 +298,21 @@ async function refreshMercadoPagoToken(
 // ── 6. CRIAR PIX (QR Code) ─────────────────────────────────
 
 export const createMercadoPagoPix = createServerFn({ method: "POST" })
-  .validator((data: { 
-    orderId: string; 
-    amount: number; 
+  .validator((data: {
+    orderId: string;
+    amount: number;
     description: string;
     payerEmail: string;
     payerCpf?: string;
   }) => data)
-  .handler(async ({ data }): Promise<{ success: boolean; qrCode?: string; qrCodeBase64?: string; ticketUrl?: string; paymentId?: string; error?: string }> => {
+  .handler(async ({ data }): Promise<{
+    success: boolean;
+    qrCode?: string;
+    qrCodeBase64?: string;
+    ticketUrl?: string;
+    paymentId?: string;
+    error?: string;
+  }> => {
     const admin = getSupabaseAdmin();
     if (!admin) return { success: false, error: "Serviço indisponível" };
 
@@ -348,7 +321,6 @@ export const createMercadoPagoPix = createServerFn({ method: "POST" })
       return { success: false, error: "Mercado Pago não conectado" };
     }
 
-    // Valida/refresh token
     const tokenValid = await validateAndRefreshToken(admin, settings);
     if (!tokenValid) {
       return { success: false, error: "Token do Mercado Pago expirado. Reconecte." };
@@ -388,18 +360,15 @@ export const createMercadoPagoPix = createServerFn({ method: "POST" })
 
       const payment = await res.json();
 
-      // Salva payment info no banco
-      const { error: paymentError } = await admin
-        .from("order_payments")
-        .insert({
-          order_id: orderId,
-          method: "mercado_pago",
-          status: "pending",
-          amount,
-          mercado_pago_id: String(payment.id),
-          pix_qr_code: payment.point_of_interaction?.transaction_data?.qr_code || null,
-          pix_expiration: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-        });
+      const { error: paymentError } = await admin.from("order_payments").insert({
+        order_id: orderId,
+        method: "mercado_pago",
+        status: "pending",
+        amount,
+        mercado_pago_id: String(payment.id),
+        pix_qr_code: payment.point_of_interaction?.transaction_data?.qr_code || null,
+        pix_expiration: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      });
 
       if (paymentError) console.warn("[createMercadoPagoPix] Erro ao salvar payment:", paymentError);
 
@@ -417,20 +386,88 @@ export const createMercadoPagoPix = createServerFn({ method: "POST" })
     }
   });
 
-// ── 7. VALIDAR WEBHOOK ─────────────────────────────────────
+// ── 7. CHECK PIX PAYMENT STATUS ─────────────────────────────
+
+interface PixPaymentStatus {
+  success: boolean;
+  status?: string;
+  orderStatus?: string;
+  payment?: {
+    id: string;
+    order_id: string;
+    method: string;
+    status: string;
+    amount: number;
+    transaction_id: string | null;
+    pix_qr_code: string | null;
+    pix_expiration: string | null;
+    mercado_pago_id: string | null;
+    paid_at: string | null;
+    refunded_at: string | null;
+    created_at: string;
+  } | null;
+  error?: string;
+}
+
+export const checkPixPaymentStatus = createServerFn({ method: "POST" })
+  .validator((data: { orderId: string; userId: string }) => data)
+  .handler(async ({ data }): Promise<PixPaymentStatus> => {
+    const admin = getSupabaseAdmin();
+    if (!admin) {
+      return { success: false, error: "Serviço indisponível" };
+    }
+
+    try {
+      const { data: order, error } = await admin
+        .from("orders")
+        .select("payment_status, status, payment:order_payments(*)")
+        .eq("id", data.orderId)
+        .eq("user_id", data.userId)
+        .single();
+
+      if (error || !order) {
+        return { success: false, error: "Pedido não encontrado" };
+      }
+
+      const paymentData = order.payment as Array<{
+        id: string;
+        order_id: string;
+        method: string;
+        status: string;
+        amount: number;
+        transaction_id: string | null;
+        pix_qr_code: string | null;
+        pix_expiration: string | null;
+        mercado_pago_id: string | null;
+        paid_at: string | null;
+        refunded_at: string | null;
+        created_at: string;
+      }> | null;
+
+      const firstPayment = paymentData?.[0] ?? null;
+
+      return {
+        success: true,
+        status: order.payment_status,
+        orderStatus: order.status,
+        payment: firstPayment,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro ao verificar pagamento";
+      console.error("[checkPixPaymentStatus]", err);
+      return { success: false, error: message };
+    }
+  });
+
+// ── 8. VALIDAR WEBHOOK ─────────────────────────────────────
 
 export const validateMercadoPagoWebhook = createServerFn({ method: "POST" })
   .validator((data: { signature: string; requestId: string; body: string }) => data)
   .handler(async ({ data }): Promise<{ valid: boolean }> => {
-    if (!MP_WEBHOOK_SECRET) return { valid: true }; // Skip se não configurado
+    if (!MP_WEBHOOK_SECRET) return { valid: true };
 
     try {
-      // Validação simplificada — MP usa HMAC-SHA256 na prática
-      // Implementação completa requer crypto.subtle.sign com a secret
       const { requestId } = data;
-      
-      // TODO: Implementar validação HMAC completa se necessário
-      // Por ora, validamos se o requestId é UUID válido
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       return { valid: uuidRegex.test(requestId) };
     } catch {
@@ -452,6 +489,5 @@ async function validateAndRefreshToken(
 
   if (res.ok) return true;
 
-  // Token expirado, tenta refresh
   return refreshMercadoPagoToken(admin, settings);
 }
