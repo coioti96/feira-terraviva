@@ -152,7 +152,7 @@ function Stepper({ currentStep }: { currentStep: StepKey }) {
 }
 
 /* ────────────────────────────────────────────────────────────
-   PIX MODAL — SEM HOOKS CONDICIONAIS
+   PIX MODAL — ENTERPRISE · HOOKS SEMPRE NA MESMA ORDEM
    ──────────────────────────────────────────────────────────── */
 function PixModal({
   isOpen,
@@ -175,15 +175,21 @@ function PixModal({
   userId: string;
   onPaymentConfirmed: () => void;
 }) {
-  // TODOS os hooks primeiro - nunca retorna antes
+  // ✅ TODOS os hooks PRIMEIRO — nunca retorna antes deles
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState<"pending" | "paid" | "expired">("pending");
   const [timeLeft, setTimeLeft] = useState(30 * 60);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ✅ useEffect sempre executa, mas só faz coisas se isOpen for true
   useEffect(() => {
     if (!isOpen) return;
+
+    // Reset state cada vez que o modal abre
+    setStatus("pending");
+    setTimeLeft(30 * 60);
+    setCopied(false);
 
     intervalRef.current = setInterval(() => {
       setTimeLeft((prev) => {
@@ -206,7 +212,7 @@ function PixModal({
           onPaymentConfirmed();
         }
       } catch (e) {
-        // Silencioso
+        // Silencioso — polling continua
       }
     }, 5000);
 
@@ -229,16 +235,54 @@ function PixModal({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // SÓ DEPOIS de todos os hooks, early return
+  // ✅ Early return SÓ DEPOIS de todos os hooks
   if (!isOpen) return null;
 
-  // Se dados faltarem, mostra erro em vez de quebrar
+  // ✅ Guarda de dados — nunca quebra o modal
   if (!qrCode || !qrCodeBase64) {
     return (
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "grid", placeItems: "center" }}>
-        <div style={{ background: "white", padding: 24, borderRadius: 16 }}>
-          <p>Erro ao carregar QR Code</p>
-          <button onClick={onClose}>Fechar</button>
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.6)",
+          backdropFilter: "blur(4px)",
+          zIndex: 100,
+          display: "grid",
+          placeItems: "center",
+          padding: "var(--space-4)",
+        }}
+        onClick={onClose}
+      >
+        <div
+          style={{
+            background: "var(--tv-white)",
+            borderRadius: "var(--r-2xl)",
+            maxWidth: 420,
+            width: "100%",
+            padding: "var(--space-6)",
+            textAlign: "center",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <AlertCircle size={48} style={{ color: "var(--tv-danger)", marginBottom: "var(--space-4)" }} />
+          <h3
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: "var(--text-lg)",
+              fontWeight: 700,
+              color: "var(--tv-forest)",
+              marginBottom: "var(--space-2)",
+            }}
+          >
+            Erro ao carregar QR Code
+          </h3>
+          <p style={{ fontSize: "var(--text-sm)", color: "var(--tv-stone-500)", marginBottom: "var(--space-4)" }}>
+            Não foi possível gerar o QR Code. Seu pedido foi criado com sucesso.
+          </p>
+          <button onClick={onClose} className="tv-btn tv-btn--primary">
+            Ver meu pedido
+          </button>
         </div>
       </div>
     );
@@ -1839,20 +1883,28 @@ function CheckoutPage() {
         </div>
       </div>
 
-      {/* PIX Modal — SÓ RENDERIZA SE TODOS OS DADOS EXISTIREM */}
-      {pixModalOpen && pixData && pixData.qrCode && pixData.qrCodeBase64 && (
-        <PixModal
-          isOpen={pixModalOpen}
-          onClose={() => setPixModalOpen(false)}
-          qrCode={pixData.qrCode}
-          qrCodeBase64={pixData.qrCodeBase64}
-          ticketUrl={pixData.ticketUrl}
-          orderId={pixData.orderId}
-          amount={total}
-          userId={profile.id}
-          onPaymentConfirmed={handlePaymentConfirmed}
-        />
-      )}
+      {/*
+        ╔══════════════════════════════════════════════════════════╗
+        ║  PIX MODAL — CORREÇÃO ENTERPRISE · REACT #300           ║
+        ║                                                          ║
+        ║  MUDANÇA 1 DE 2:                                         ║
+        ║  O modal é renderizado SEMPRE no DOM, incondicionalmente.║
+        ║  O isOpen=false faz o componente retornar null por dentro,║
+        ║  mas os hooks já foram chamados na ordem correta.        ║
+        ║  Strings vazias garantem que os props nunca são undefined.║
+        ╚══════════════════════════════════════════════════════════╝
+      */}
+      <PixModal
+        isOpen={pixModalOpen}
+        onClose={() => setPixModalOpen(false)}
+        qrCode={pixData?.qrCode ?? ""}
+        qrCodeBase64={pixData?.qrCodeBase64 ?? ""}
+        ticketUrl={pixData?.ticketUrl ?? ""}
+        orderId={pixData?.orderId ?? ""}
+        amount={total}
+        userId={profile.id}
+        onPaymentConfirmed={handlePaymentConfirmed}
+      />
 
       <style>{`
         @media (min-width: 1200px) {
