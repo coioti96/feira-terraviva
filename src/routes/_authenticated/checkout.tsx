@@ -175,20 +175,16 @@ function PixModal({
   userId: string;
   onPaymentConfirmed: () => void;
 }) {
+  // ✅ TODOS os hooks PRIMEIRO, antes de qualquer return
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState<"pending" | "paid" | "expired">("pending");
   const [timeLeft, setTimeLeft] = useState(30 * 60);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Verificação defensiva — não renderiza se dados essenciais faltarem
-  if (!isOpen) return null;
-  if (!qrCode || !qrCodeBase64 || !orderId) {
-    console.error("[PixModal] Dados incompletos:", { qrCode: !!qrCode, qrCodeBase64: !!qrCodeBase64, orderId: !!orderId });
-    return null;
-  }
-
   useEffect(() => {
+    if (!isOpen) return;
+
     intervalRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -218,7 +214,7 @@ function PixModal({
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [orderId, userId, onPaymentConfirmed]);
+  }, [isOpen, orderId, userId, onPaymentConfirmed]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -232,6 +228,13 @@ function PixModal({
     toast.success("Código PIX copiado!");
     setTimeout(() => setCopied(false), 2000);
   };
+
+  // ✅ SÓ DEPOIS de todos os hooks, faz o early return
+  if (!isOpen) return null;
+  if (!qrCode || !qrCodeBase64 || !orderId) {
+    console.error("[PixModal] Dados incompletos");
+    return null;
+  }
 
   return (
     <div
