@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Leaf,
@@ -20,7 +20,6 @@ import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ProductCard, ProductCardSkeleton } from "@/components/store/ProductCard";
 import { useCatalogStore } from "@/stores/catalog";
 import { useSettingsStore } from "@/stores/settings";
-import { isPromoActive } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -71,7 +70,7 @@ function LogoGlow({ src, size = 120 }: { src?: string | null; size?: number }) {
       <div style={{ position: "absolute", inset: -3, borderRadius: "50%", background: "conic-gradient(from 0deg, #B8860B 0%, #f0c040 30%, #B8860B 60%, #e8b830 80%, #B8860B 100%)", padding: 2 }}>
         <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: "#0A1F0A" }} />
       </div>
-      <div style={{ position: "absolute", inset: 2, borderRadius: "50%", overflow: "hidden", background: "#143314" }}>
+      <div style={{ position: "absolute", inset: 2, borderRadius: "50%", overflow: "hidden", background: "linear-gradient(135deg, #143314, #2D5A27)" }}>
         {src ? (
           <img src={src} alt="Terra Viva" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
         ) : (
@@ -112,50 +111,395 @@ function TrustPill({ icon: Icon, label, sub }: { icon: React.ElementType; label:
   );
 }
 
-/* Categoria compacta e responsiva */
-function CategoryButton({ label, imageUrl, active, onClick, icon }: {
-  label: string; imageUrl?: string | null; active: boolean; onClick: () => void; icon?: React.ReactNode;
+/* ═══════════════════════════════════════════════════════════════
+   CATEGORY CAROUSEL — Carrossel horizontal infinito
+   Auto-scroll + drag manual + snap + pause no hover
+   ═══════════════════════════════════════════════════════════════ */
+
+interface CategoryItem {
+  id: string;
+  name: string;
+  slug: string;
+  image_url?: string | null;
+}
+
+function CategoryCarousel({
+  categories,
+  activeCategory,
+  onSelect,
+}: {
+  categories: CategoryItem[];
+  activeCategory: string | null;
+  onSelect: (slug: string | null) => void;
 }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const autoScrollRef = useRef<number | null>(null);
+  const velocityRef = useRef(0);
+  const lastXRef = useRef(0);
+  const lastTimeRef = useRef(0);
+
+  // Mapeia slug → imagem PNG em public/categorias
+  const getCategoryImage = useCallback((slug: string): string => {
+    const map: Record<string, string> = {
+      bebidas: "/categorias/bebida.png",
+      frutas: "/categorias/frutas.png",
+      graos: "/categorias/graos.png",
+      graos_e_cereais: "/categorias/graos.png",
+      laticinios: "/categorias/laticinios.png",
+      organico: "/categorias/organico.png",
+      organicos: "/categorias/organico.png",
+      outros: "/categorias/outros.png",
+      temperos: "/categorias/tempero.png",
+      tempero: "/categorias/tempero.png",
+      vegetais: "/categorias/vegetal.png",
+      vegetal: "/categorias/vegetal.png",
+      verduras: "/categorias/verduras.png",
+      verdura: "/categorias/verduras.png",
+    };
+    return map[slug] || `/categorias/${slug}.png`;
+  }, []);
+
+  // Itens do carrossel: Todos + categorias
+  const allItems: Array<{ type: "all" | "category"; data?: CategoryItem }> = [
+    { type: "all" },
+    ...categories.map((cat) => ({ type: "category" as const, data: cat })),
+  ];
+
+  // Duplica os itens para loop infinito visual
+  const duplicatedItems = [...allItems, ...allItems, ...allItems];
+
+  // Auto-scroll infinito
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+
+    const scroll = () => {
+      if (!track || isPaused || isDragging) {
+        autoScrollRef.current = requestAnimationFrame(scroll);
+        return;
+      }
+
+      track.scrollLeft += 0.6; // velocidade suave
+
+      // Loop infinito: quando chega no final do primeiro conjunto, volta pro início
+      const itemWidth = track.scrollWidth / 3;
+      if (track.scrollLeft >= itemWidth * 2) {
+        track.scrollLeft = itemWidth;
+      }
+
+      autoScrollRef.current = requestAnimationFrame(scroll);
+    };
+
+    // Posiciona no meio (segundo conjunto) para permitir scroll para ambos os lados
+    const itemWidth = track.scrollWidth / 3;
+    track.scrollLeft = itemWidth;
+
+    autoScrollRef.current = requestAnimationFrame(scroll);
+
+    return () => {
+      if (autoScrollRef.current) cancelAnimationFrame(autoScrollRef.current);
+    };
+  }, [isPaused, isDragging]);
+
+  // Handlers de drag
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!trackRef.current) return;
+    setIsDragging(true);
+    setStartX(e.pageX - trackRef.current.offsetLeft);
+    setScrollLeft(trackRef.current.scrollLeft);
+    lastXRef.current = e.pageX;
+    lastTimeRef.current = Date.now();
+    velocityRef.current = 0;
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!trackRef.current) return;
+    setIsDragging(true);
+    setStartX(e.touches[0].pageX - trackRef.current.offsetLeft);
+    setScrollLeft(trackRef.current.scrollLeft);
+    lastXRef.current = e.touches[0].pageX;
+    lastTimeRef.current = Date.now();
+    velocityRef.current = 0;
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !trackRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - trackRef.current.offsetLeft;
+    const walk = (x - startX) * 1.2;
+    trackRef.current.scrollLeft = scrollLeft - walk;
+
+    // Calcula velocidade para inércia
+    const now = Date.now();
+    const dt = now - lastTimeRef.current;
+    if (dt > 0) {
+      velocityRef.current = (e.pageX - lastXRef.current) / dt;
+    }
+    lastXRef.current = e.pageX;
+    lastTimeRef.current = now;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || !trackRef.current) return;
+    const x = e.touches[0].pageX - trackRef.current.offsetLeft;
+    const walk = (x - startX) * 1.2;
+    trackRef.current.scrollLeft = scrollLeft - walk;
+
+    const now = Date.now();
+    const dt = now - lastTimeRef.current;
+    if (dt > 0) {
+      velocityRef.current = (e.touches[0].pageX - lastXRef.current) / dt;
+    }
+    lastXRef.current = e.touches[0].pageX;
+    lastTimeRef.current = now;
+  };
+
+  const handleEnd = () => {
+    if (!isDragging || !trackRef.current) return;
+    setIsDragging(false);
+
+    // Inércia suave
+    const track = trackRef.current;
+    const inertia = () => {
+      if (Math.abs(velocityRef.current) < 0.01) return;
+      track.scrollLeft -= velocityRef.current * 16;
+      velocityRef.current *= 0.92; // fricção
+      requestAnimationFrame(inertia);
+    };
+    requestAnimationFrame(inertia);
+  };
+
+  // Snap ao item mais próximo
+  const snapToItem = () => {
+    if (!trackRef.current || isDragging) return;
+    const track = trackRef.current;
+    const itemWidth = track.scrollWidth / 3 / allItems.length;
+    const targetScroll = Math.round(track.scrollLeft / itemWidth) * itemWidth;
+    track.scrollTo({ left: targetScroll, behavior: "smooth" });
+  };
+
+  const handleClick = (e: React.MouseEvent, slug: string | null) => {
+    // Só clica se não estava arrastando
+    if (Math.abs(velocityRef.current) > 0.05) return;
+    onSelect(slug);
+  };
+
+  const renderCategoryButton = (
+    item: { type: "all" | "category"; data?: CategoryItem },
+    index: number
+  ) => {
+    const isAll = item.type === "all";
+    const slug = isAll ? null : item.data!.slug;
+    const name = isAll ? "Todos" : item.data!.name;
+    const imageUrl = isAll ? "/categorias/todos.png" : getCategoryImage(item.data!.slug);
+    const isActive = isAll ? activeCategory === null : activeCategory === slug;
+
+    return (
+      <button
+        key={`${isAll ? "all" : item.data!.id}-${index}`}
+        onClick={(e) => handleClick(e, slug)}
+        onMouseDown={(e) => e.preventDefault()}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 6px",
+          background: "transparent",
+          border: "none",
+          borderRadius: 16,
+          cursor: isDragging ? "grabbing" : "pointer",
+          outline: "none",
+          WebkitTapHighlightColor: "transparent",
+          flexShrink: 0,
+          width: "clamp(72px, 18vw, 90px)",
+          minWidth: 72,
+          userSelect: "none",
+          touchAction: "pan-x",
+        }}
+      >
+        {/* Círculo com imagem */}
+        <div
+          style={{
+            position: "relative",
+            width: "clamp(56px, 14vw, 72px)",
+            height: "clamp(56px, 14vw, 72px)",
+            borderRadius: "50%",
+            flexShrink: 0,
+          }}
+        >
+          {/* Glow no ativo */}
+          {isActive && (
+            <motion.div
+              layoutId="catActiveGlow"
+              style={{
+                position: "absolute",
+                inset: -5,
+                borderRadius: "50%",
+                background: "conic-gradient(from 0deg, var(--tv-moss), var(--tv-gold), var(--tv-terracota), var(--tv-moss))",
+                opacity: 0.5,
+                filter: "blur(5px)",
+              }}
+              transition={{ duration: 0.3 }}
+            />
+          )}
+
+          {/* Anel de borda */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              padding: isActive ? 3 : 2,
+              background: isActive
+                ? "conic-gradient(from 0deg, var(--tv-moss), var(--tv-gold), var(--tv-terracota), var(--tv-moss))"
+                : "linear-gradient(135deg, var(--tv-stone-200), var(--tv-stone-300))",
+              transition: "all 0.25s ease",
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                borderRadius: "50%",
+                background: isActive ? "var(--tv-moss)" : "var(--tv-white)",
+                transition: "background 0.25s ease",
+              }}
+            />
+          </div>
+
+          {/* Imagem */}
+          <div
+            style={{
+              position: "absolute",
+              inset: isActive ? 3 : 2,
+              borderRadius: "50%",
+              overflow: "hidden",
+              background: isActive ? "var(--tv-moss)" : "var(--tv-cream)",
+            }}
+          >
+            <img
+              src={imageUrl}
+              alt={name}
+              loading="lazy"
+              draggable={false}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center",
+                transition: "transform 0.3s ease",
+                pointerEvents: "none",
+              }}
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "/icons/maskable_icon.png";
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Label */}
+        <span
+          style={{
+            fontSize: "clamp(10px, 2.6vw, 12px)",
+            fontWeight: isActive ? 700 : 500,
+            lineHeight: 1.25,
+            textAlign: "center",
+            color: isActive ? "var(--tv-moss)" : "var(--tv-stone-600)",
+            transition: "color 0.2s ease, font-weight 0.2s ease",
+            maxWidth: "100%",
+            wordBreak: "break-word",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical" as React.CSSProperties["WebkitBoxOrient"],
+            overflow: "hidden",
+            padding: "0 2px",
+          }}
+        >
+          {name}
+        </span>
+      </button>
+    );
+  };
+
   return (
-    <motion.button
-      whileTap={{ scale: 0.95 }}
-      onClick={onClick}
+    <div
+      ref={containerRef}
       style={{
-        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
-        gap: 6, padding: "8px 4px 10px",
-        background: active ? "var(--tv-moss)" : "var(--tv-white)",
-        border: `1.5px solid ${active ? "var(--tv-moss)" : "var(--tv-stone-200)"}`,
-        borderRadius: 14,
-        cursor: "pointer",
-        boxShadow: active ? "0 4px 14px rgba(45,90,39,0.35)" : "0 1px 3px rgba(0,0,0,0.06)",
-        transition: "all 0.18s ease",
+        position: "relative",
         width: "100%",
-        minWidth: 0,
-        outline: "none",
+        overflow: "hidden",
+        cursor: isDragging ? "grabbing" : "grab",
+        padding: "4px 0",
+      }}
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => {
+        setIsPaused(false);
+        snapToItem();
+      }}
+      onTouchStart={() => setIsPaused(true)}
+      onTouchEnd={() => {
+        setIsPaused(false);
+        setTimeout(snapToItem, 100);
       }}
     >
-      <div style={{
-        width: 36, height: 36, borderRadius: "50%",
-        background: active ? "rgba(255,255,255,0.18)" : "linear-gradient(135deg, #e8f5e1, #c8e8c0)",
-        color: active ? "white" : "var(--tv-moss)",
-        display: "grid", placeItems: "center", overflow: "hidden", flexShrink: 0,
-      }}>
-        {imageUrl
-          ? <img src={imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          : (icon ?? <Leaf size={15} />)
-        }
+      {/* Fade edges */}
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 40,
+          background: "linear-gradient(to right, var(--tv-linen), transparent)",
+          zIndex: 2,
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: 40,
+          background: "linear-gradient(to left, var(--tv-linen), transparent)",
+          zIndex: 2,
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* Track */}
+      <div
+        ref={trackRef}
+        style={{
+          display: "flex",
+          gap: "clamp(8px, 2vw, 16px)",
+          padding: "8px 12px",
+          overflowX: "auto",
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+          WebkitOverflowScrolling: "touch",
+          scrollBehavior: isDragging ? "auto" : "smooth",
+          userSelect: "none",
+        }}
+        className="no-scrollbar"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleEnd}
+        onMouseLeave={handleEnd}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleEnd}
+      >
+        {duplicatedItems.map((item, i) => renderCategoryButton(item, i))}
       </div>
-      <span style={{
-        fontSize: 10, fontWeight: 500, lineHeight: 1.2, textAlign: "center",
-        color: active ? "white" : "var(--tv-stone-700)",
-        wordBreak: "break-word", maxWidth: "100%",
-        display: "-webkit-box", WebkitLineClamp: 2,
-        WebkitBoxOrient: "vertical" as React.CSSProperties["WebkitBoxOrient"],
-        overflow: "hidden",
-      }}>
-        {label}
-      </span>
-    </motion.button>
+    </div>
   );
 }
 
@@ -182,9 +526,7 @@ function HomePage() {
     ? activeProducts.filter((p) => p.category?.slug === activeCategory).length > 12
     : activeProducts.length > 12;
 
-  // Valores fixos conforme solicitado
   const deliveryTime = 45;
-  const paymentMethods = "PIX · Dinheiro · Cartão";
 
   return (
     <PublicLayout>
@@ -283,35 +625,31 @@ function HomePage() {
         </div>
       </section>
 
-      {/* ══════════ CATEGORIAS ══════════ */}
+      {/* ══════════ CATEGORIAS — CARROSSEL HORIZONTAL INFINITO ══════════ */}
       {categories.length > 0 && (
-        <section style={{ background: "var(--tv-linen)", paddingBlock: "var(--space-8)", borderTop: "1px solid var(--tv-stone-100)" }}>
-          <div style={{ maxWidth: 1280, marginInline: "auto", paddingInline: "clamp(1rem, 4vw, 2.5rem)" }}>
+        <section style={{ background: "var(--tv-linen)", paddingBlock: "clamp(1.5rem, 3vw, 2.5rem)", borderTop: "1px solid var(--tv-stone-100)" }}>
+          <div style={{ maxWidth: 1280, marginInline: "auto", paddingInline: "clamp(0.75rem, 3vw, 2rem)" }}>
             <Reveal>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-4)", marginBottom: "var(--space-5)", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-4)", marginBottom: "var(--space-4)", flexWrap: "wrap", paddingInline: "clamp(0.25rem, 1vw, 0.5rem)" }}>
                 <div>
                   <p className="eyebrow" style={{ marginBottom: "var(--space-1)", display: "flex", alignItems: "center", gap: 6 }}>
                     <Leaf size={11} />Navegue por departamento
                   </p>
-                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(1.4rem, 3vw, 2rem)", fontWeight: 700, color: "var(--tv-forest)", margin: 0 }}>Categorias</h2>
+                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(1.3rem, 3vw, 1.8rem)", fontWeight: 700, color: "var(--tv-forest)", margin: 0 }}>
+                    Categorias
+                  </h2>
                 </div>
-                <Link to="/produtos" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: "var(--text-sm)", color: "var(--tv-moss)", fontWeight: 500, textDecoration: "none" }}>
+                <Link to="/produtos" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: "var(--text-sm)", color: "var(--tv-moss)", fontWeight: 500, textDecoration: "none", flexShrink: 0 }}>
                   Ver todas <ChevronRight size={14} />
                 </Link>
               </div>
             </Reveal>
 
-            {/* Grade: 5 col mobile, 7 tablet, auto desktop */}
-            <div className="tv-cat-grid-home">
-              <Reveal delay={0}>
-                <CategoryButton label="Todos" active={activeCategory === null} onClick={() => setActiveCategory(null)} icon={<Sparkles size={15} />} />
-              </Reveal>
-              {categories.map((cat, i) => (
-                <Reveal key={cat.id} delay={(i + 1) * 0.04}>
-                  <CategoryButton label={cat.name} imageUrl={cat.image_url} active={activeCategory === cat.slug} onClick={() => setActiveCategory(cat.slug)} />
-                </Reveal>
-              ))}
-            </div>
+            <CategoryCarousel
+              categories={categories}
+              activeCategory={activeCategory}
+              onSelect={setActiveCategory}
+            />
           </div>
         </section>
       )}

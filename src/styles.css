@@ -2274,3 +2274,86 @@
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.6; transform: scale(1.4); }
 }
+/* ═══════════════════════════════════════════════════════════════
+   CATEGORY CAROUSEL — Estilos complementares
+   Carrossel horizontal infinito com auto-scroll e drag
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Esconde scrollbar no carrossel */
+.cat-carousel-track {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.cat-carousel-track::-webkit-scrollbar {
+  display: none;
+}
+
+/* Cursor durante drag */
+.cat-carousel-container {
+  cursor: grab;
+}
+.cat-carousel-container:active,
+.cat-carousel-container.cat-dragging {
+  cursor: grabbing;
+}
+
+/* Animação suave do glow ativo */
+@keyframes cat-glow-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.cat-active-ring::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--tv-moss), var(--tv-gold), var(--tv-terracota), var(--tv-moss));
+  animation: cat-glow-rotate 3s linear infinite;
+  opacity: 0.6;
+  filter: blur(4px);
+}
+
+/* Fade edges para desktop */
+@media (min-width: 768px) {
+  .cat-fade-left,
+  .cat-fade-right {
+    width: 60px;
+  }
+}
+
+/* Touch optimization */
+.cat-carousel-track {
+  touch-action: pan-x pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevenir seleção de texto durante drag */
+.cat-carousel-track * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Ajuste de tamanho dos círculos responsivo */
+.cat-circle {
+  width: clamp(52px, 13vw, 68px);
+  height: clamp(52px, 13vw, 68px);
+}
+
+/* Label responsivo */
+.cat-label {
+  font-size: clamp(9px, 2.4vw, 11px);
+  max-width: 100%;
+}
+
+/* Desktop: aumenta um pouco o carrossel */
+@media (min-width: 1024px) {
+  .cat-circle {
+    width: 72px;
+    height: 72px;
+  }
+  .cat-label {
+    font-size: 12px;
+  }
+}
