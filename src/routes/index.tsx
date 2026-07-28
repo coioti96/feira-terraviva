@@ -520,11 +520,12 @@ function HomePage() {
   const logoSrc = settings.logo_url || "/icons/maskable_icon.png";
   const activeProducts = products.filter((p) => p.is_active);
   const displayProducts = activeCategory
-    ? activeProducts.filter((p) => p.category?.slug === activeCategory).slice(0, 12)
-    : activeProducts.slice(0, 12);
-  const hasMore = activeCategory
-    ? activeProducts.filter((p) => p.category?.slug === activeCategory).length > 12
-    : activeProducts.length > 12;
+  ? activeProducts.filter((p) => p.categories?.slug === activeCategory).slice(0, 12)
+  : activeProducts.slice(0, 12);
+
+const hasMore = activeCategory
+  ? activeProducts.filter((p) => p.categories?.slug === activeCategory).length > 12
+  : activeProducts.length > 12;
 
   const deliveryTime = 45;
 

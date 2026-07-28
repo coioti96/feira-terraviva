@@ -308,7 +308,7 @@ export interface Product {
   slug: string;
   description: string | null;
   category_id: string | null;
-  category?: Category;
+  categories?: Category;
   base_price: number;
   unit_prices: UnitPriceMap;
   promotional_price: number | null;
