@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { Plus, Sparkles, Leaf } from "lucide-react";
+import { Plus, Minus, Sparkles, Leaf, ShoppingCart } from "lucide-react";
 import { motion } from "framer-motion";
+import { useState, useMemo } from "react";
 import type { Product, ProductUnit } from "@/types";
 import { cn, formatCurrency, isPromoActive } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ interface ProductCardProps {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ORDENAÇÃO DE UNIDADES — do menor peso/quantidade para o maior
+   ORDENAÇÃO DE UNIDADES — do menor para o maior
    ═══════════════════════════════════════════════════════════════ */
 const UNIT_ORDER: ProductUnit[] = [
   "unidade",
@@ -49,35 +50,83 @@ function getUnitPrice(product: Product, unit: ProductUnit): number {
   return product.unit_prices?.[unit] ?? product.base_price;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PRODUCT CARD — Layout profissional com seletor de unidade
+   ═══════════════════════════════════════════════════════════════ */
 export function ProductCard({ product, index = 0 }: ProductCardProps) {
-  const addItem = useCartStore((s) => s.addItem);
+  const { addItem, items, updateQuantity, removeItem } = useCartStore();
 
-  // Todas as unidades disponíveis para este produto, ordenadas do menor para o maior
-  const availableUnits = sortUnits(
-    Object.keys(product.unit_prices || {}) as ProductUnit[]
+  // Unidades disponíveis, ordenadas
+  const availableUnits = useMemo(() => {
+    const units = Object.keys(product.unit_prices || {}) as ProductUnit[];
+    return sortUnits(units.length > 0 ? units : ["unidade"]);
+  }, [product.unit_prices]);
+
+  // Estado local: unidade selecionada e quantidade
+  const [selectedUnit, setSelectedUnit] = useState<ProductUnit>(availableUnits[0]);
+
+  // Preço da unidade selecionada
+  const unitPrice = useMemo(
+    () => getUnitPrice(product, selectedUnit),
+    [product, selectedUnit]
   );
 
-  // Se não houver unit_prices definidos, fallback para base_price com unidade "unidade"
-  const unitsToShow =
-    availableUnits.length > 0
-      ? availableUnits
-      : (["unidade"] as ProductUnit[]);
+  // Verifica se já tem este item no carrinho
+  const cartItem = items.find(
+    (i) => i.product_id === product.id && i.unit_type === selectedUnit
+  );
+  const cartQty = cartItem?.quantity ?? 0;
 
-  const handleAddToCart = (e: React.MouseEvent, unit: ProductUnit) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const price = getUnitPrice(product, unit);
+  // Preço original (para riscar em promoção)
+  const originalPrice = product.unit_prices?.[selectedUnit] ?? product.base_price;
+  const hasPromo = isPromoActive(product) && originalPrice > unitPrice;
+
+  // Handlers
+  const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedUnit(e.target.value as ProductUnit);
+  };
+
+  const handleIncrement = () => {
+    if (cartQty > 0) {
+      updateQuantity(cartItem!.id, cartQty + 1);
+    } else {
+      addItem({
+        product_id: product.id,
+        product_name: product.name,
+        product_image: product.images?.[0] || "",
+        product_slug: product.slug,
+        unit_type: selectedUnit,
+        quantity: 1,
+        unit_price: unitPrice,
+      });
+    }
+    toast.success(`${product.name} — ${unitLabel(selectedUnit)}`, {
+      description: `Quantidade: ${cartQty + 1}`,
+      icon: <Leaf className="h-4 w-4" />,
+    });
+  };
+
+  const handleDecrement = () => {
+    if (cartQty <= 1 && cartItem) {
+      removeItem(cartItem.id);
+      toast.info("Item removido do carrinho");
+    } else if (cartItem) {
+      updateQuantity(cartItem.id, cartQty - 1);
+    }
+  };
+
+  const handleAddFirst = () => {
     addItem({
       product_id: product.id,
       product_name: product.name,
       product_image: product.images?.[0] || "",
       product_slug: product.slug,
-      unit_type: unit,
+      unit_type: selectedUnit,
       quantity: 1,
-      unit_price: price,
+      unit_price: unitPrice,
     });
     toast.success(`${product.name} adicionado!`, {
-      description: `${unitLabel(unit)} no carrinho`,
+      description: `${unitLabel(selectedUnit)} no carrinho`,
       icon: <Leaf className="h-4 w-4" />,
     });
   };
@@ -90,7 +139,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
       transition={{ duration: 0.4, delay: index * 0.05, ease: "easeOut" }}
       className="group relative flex flex-col bg-[var(--tv-white)] rounded-[var(--r-xl)] border border-[var(--tv-stone-200)] overflow-hidden hover:shadow-[var(--shadow-lg)] hover:border-[var(--tv-moss-lt)] transition-all duration-300"
     >
-      {/* Badges */}
+      {/* ═════ Badges ═════ */}
       <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5">
         {isPromoActive(product) && (
           <motion.span
@@ -122,7 +171,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
         )}
       </div>
 
-      {/* Imagem — centralizada, sem vazar para o lado */}
+      {/* ═════ Imagem ═════ */}
       <Link
         to="/produto/$slug"
         params={{ slug: product.slug }}
@@ -185,65 +234,132 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
         </div>
       </Link>
 
-      {/* Conteúdo */}
-      <div className="flex flex-col flex-1 p-4 gap-3">
+      {/* ═════ Conteúdo ═════ */}
+      <div className="flex flex-col flex-1 p-4 gap-2.5">
+        {/* Nome + descrição */}
         <Link to="/produto/$slug" params={{ slug: product.slug }} className="block">
           <h3 className="font-serif text-[15px] font-semibold text-[var(--tv-forest)] leading-snug group-hover:text-[var(--tv-moss)] transition-colors line-clamp-2">
             {product.name}
           </h3>
-          <p className="mt-1 text-[12px] text-[var(--tv-stone-400)] line-clamp-1">{product.description}</p>
+          <p className="mt-0.5 text-[12px] text-[var(--tv-stone-400)] line-clamp-1">
+            {product.description}
+          </p>
         </Link>
 
         {/* ═══════════════════════════════════════════════════════════════
-           OPÇÕES DE UNIDADE — todas visíveis, menor primeiro
+           SELETOR DE UNIDADE + PREÇO + STEPPER — Layout profissional
            ═══════════════════════════════════════════════════════════════ */}
-        <div className="mt-auto pt-2 flex flex-col gap-2">
-          {unitsToShow.map((unit) => {
-            const price = getUnitPrice(product, unit);
-            const hasPromo = isPromoActive(product);
-            const originalPrice = product.unit_prices?.[unit] ?? product.base_price;
+        <div className="mt-auto pt-1 flex flex-col gap-2.5">
+          
+          {/* Linha 1: Seletor de unidade */}
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedUnit}
+              onChange={handleUnitChange}
+              onClick={(e) => e.stopPropagation()}
+              className={cn(
+                "flex-1 min-w-0 rounded-lg border border-[var(--tv-stone-200)]",
+                "bg-[var(--tv-cream)] text-[var(--tv-forest)] text-[13px] font-medium",
+                "px-2.5 py-1.5 pr-8",
+                "focus:outline-none focus:ring-2 focus:ring-[var(--tv-moss)] focus:border-transparent",
+                "appearance-none cursor-pointer",
+                "transition-colors hover:border-[var(--tv-moss-lt)]"
+              )}
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "right 8px center",
+              }}
+            >
+              {availableUnits.map((unit) => {
+                const price = getUnitPrice(product, unit);
+                return (
+                  <option key={unit} value={unit}>
+                    {unitLabel(unit)} — {formatCurrency(price)}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
 
-            return (
-              <div
-                key={unit}
-                className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--tv-cream)]"
+          {/* Linha 2: Preço destacado + Stepper/Add */}
+          <div className="flex items-center justify-between gap-3">
+            {/* Preço */}
+            <div className="flex items-baseline gap-1.5 flex-wrap min-w-0">
+              {hasPromo && (
+                <span className="text-[12px] text-[var(--tv-stone-400)] line-through decoration-[var(--tv-stone-300)]">
+                  {formatCurrency(originalPrice)}
+                </span>
+              )}
+              <span
+                className={cn(
+                  "text-xl font-bold font-serif",
+                  hasPromo ? "text-[var(--tv-terracota)]" : "text-[var(--tv-moss)]"
+                )}
               >
-                {/* Preço + unidade */}
-                <div className="flex items-baseline gap-1.5 flex-wrap min-w-0">
-                  {hasPromo && originalPrice > price && (
-                    <span className="text-[11px] text-[var(--tv-stone-400)] line-through decoration-[var(--tv-stone-300)]">
-                      {formatCurrency(originalPrice)}
-                    </span>
-                  )}
-                  <span
-                    className={cn(
-                      "text-[15px] font-bold font-serif",
-                      hasPromo ? "text-[var(--tv-terracota)]" : "text-[var(--tv-moss)]"
-                    )}
-                  >
-                    {formatCurrency(price)}
-                  </span>
-                  <span className="text-[11px] text-[var(--tv-stone-400)] shrink-0">
-                    / {unitLabel(unit)}
-                  </span>
-                </div>
+                {formatCurrency(unitPrice)}
+              </span>
+              <span className="text-[11px] text-[var(--tv-stone-400)]">
+                / {unitLabel(selectedUnit)}
+              </span>
+            </div>
 
-                {/* Botão adicionar esta unidade */}
-                <Button
-                  size="sm"
-                  className={cn(
-                    "rounded-full gap-1 h-8 px-3 text-[12px] font-semibold transition-all duration-200 shrink-0",
-                    "bg-[var(--tv-moss)] hover:bg-[var(--tv-moss-mid)] text-white active:scale-[0.96]",
-                  )}
-                  style={{ boxShadow: "var(--shadow-sm)" }}
-                  onClick={(e) => handleAddToCart(e, unit)}
+            {/* Stepper (se já no carrinho) ou Botão Add (se não) */}
+            {cartQty > 0 ? (
+              <div
+                className="flex items-center gap-0 rounded-full overflow-hidden border border-[var(--tv-moss)]"
+                style={{ boxShadow: "var(--shadow-sm)" }}
+              >
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleDecrement();
+                  }}
+                  className="flex items-center justify-center w-9 h-9 bg-[var(--tv-moss)] text-white hover:bg-[var(--tv-moss-mid)] active:scale-95 transition-all"
                 >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Add</span>
-                </Button>
+                  <Minus className="h-4 w-4" />
+                </button>
+                <span className="flex items-center justify-center w-10 h-9 bg-white text-[var(--tv-forest)] text-sm font-bold">
+                  {cartQty}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleIncrement();
+                  }}
+                  className="flex items-center justify-center w-9 h-9 bg-[var(--tv-moss)] text-white hover:bg-[var(--tv-moss-mid)] active:scale-95 transition-all"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
               </div>
-            );
-          })}
+            ) : (
+              <Button
+                size="sm"
+                className={cn(
+                  "rounded-full gap-1.5 h-10 px-4 text-[13px] font-semibold transition-all duration-200",
+                  "bg-[var(--tv-moss)] hover:bg-[var(--tv-moss-mid)] text-white active:scale-[0.96]",
+                )}
+                style={{ boxShadow: "var(--shadow-forest)" }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleAddFirst();
+                }}
+              >
+                <ShoppingCart className="h-4 w-4" />
+                <span className="hidden sm:inline">Adicionar</span>
+              </Button>
+            )}
+          </div>
+
+          {/* Quantidade no carrinho (hint) */}
+          {cartQty > 0 && (
+            <p className="text-[11px] text-[var(--tv-moss)] text-right font-medium">
+              {cartQty} {unitLabel(selectedUnit)} no carrinho
+            </p>
+          )}
         </div>
       </div>
     </motion.article>
@@ -259,7 +375,7 @@ export function ProductCardSkeleton() {
       <div className="p-4 space-y-3">
         <div className="h-4 bg-[var(--tv-stone-200)] rounded animate-pulse w-3/4" />
         <div className="h-3 bg-[var(--tv-stone-200)] rounded animate-pulse w-1/2" />
-        <div className="h-6 bg-[var(--tv-stone-200)] rounded animate-pulse w-1/3 mt-2" />
+        <div className="h-8 bg-[var(--tv-stone-200)] rounded animate-pulse w-full mt-2" />
         <div className="h-10 bg-[var(--tv-stone-200)] rounded-full animate-pulse mt-2" />
       </div>
     </div>
