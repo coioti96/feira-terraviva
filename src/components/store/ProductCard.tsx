@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Plus, Sparkles, Leaf } from "lucide-react";
 import { motion } from "framer-motion";
-import type { Product } from "@/types";
+import type { Product, ProductUnit } from "@/types";
 import { cn, formatCurrency, isPromoActive } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useCartStore, unitLabel } from "@/stores/cart";
@@ -12,31 +12,72 @@ interface ProductCardProps {
   index?: number;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ORDENAÇÃO DE UNIDADES — do menor peso/quantidade para o maior
+   ═══════════════════════════════════════════════════════════════ */
+const UNIT_ORDER: ProductUnit[] = [
+  "unidade",
+  "100g",
+  "250g",
+  "500g",
+  "1kg",
+  "2kg",
+  "5kg",
+  "maço",
+  "bandeja",
+  "pacote",
+  "dúzia",
+  "caixa",
+  "litro",
+];
+
+function sortUnits(units: ProductUnit[]): ProductUnit[] {
+  return [...units].sort((a, b) => {
+    const idxA = UNIT_ORDER.indexOf(a);
+    const idxB = UNIT_ORDER.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b);
+  });
+}
+
+function getUnitPrice(product: Product, unit: ProductUnit): number {
+  if (isPromoActive(product) && product.promotional_price != null) {
+    return product.promotional_price;
+  }
+  return product.unit_prices?.[unit] ?? product.base_price;
+}
+
 export function ProductCard({ product, index = 0 }: ProductCardProps) {
   const addItem = useCartStore((s) => s.addItem);
-  const units = Object.keys(product.unit_prices || {}) as Array<keyof typeof product.unit_prices>;
-  const defaultUnit = units[0] || "unidade";
-  const price = isPromoActive(product)
-    ? product.promotional_price!
-    : product.unit_prices?.[defaultUnit] ?? product.base_price;
-  const oldPrice = isPromoActive(product)
-    ? product.unit_prices?.[defaultUnit] ?? product.base_price
-    : null;
 
-  const handleAddToCart = (e: React.MouseEvent) => {
+  // Todas as unidades disponíveis para este produto, ordenadas do menor para o maior
+  const availableUnits = sortUnits(
+    Object.keys(product.unit_prices || {}) as ProductUnit[]
+  );
+
+  // Se não houver unit_prices definidos, fallback para base_price com unidade "unidade"
+  const unitsToShow =
+    availableUnits.length > 0
+      ? availableUnits
+      : (["unidade"] as ProductUnit[]);
+
+  const handleAddToCart = (e: React.MouseEvent, unit: ProductUnit) => {
     e.preventDefault();
     e.stopPropagation();
+    const price = getUnitPrice(product, unit);
     addItem({
       product_id: product.id,
       product_name: product.name,
       product_image: product.images?.[0] || "",
       product_slug: product.slug,
-      unit_type: defaultUnit,
+      unit_type: unit,
       quantity: 1,
       unit_price: price,
     });
     toast.success(`${product.name} adicionado!`, {
-      description: `${unitLabel(defaultUnit)} no carrinho`,
+      description: `${unitLabel(unit)} no carrinho`,
       icon: <Leaf className="h-4 w-4" />,
     });
   };
@@ -153,32 +194,56 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
           <p className="mt-1 text-[12px] text-[var(--tv-stone-400)] line-clamp-1">{product.description}</p>
         </Link>
 
-        {/* Preço */}
-        <div className="mt-auto pt-2">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            {oldPrice && (
-              <span className="text-[13px] text-[var(--tv-stone-400)] line-through decoration-[var(--tv-stone-300)]">
-                {formatCurrency(oldPrice)}
-              </span>
-            )}
-            <span className={cn("text-lg font-bold font-serif", oldPrice ? "text-[var(--tv-terracota)]" : "text-[var(--tv-moss)]")}>
-              {formatCurrency(price)}
-            </span>
-            <span className="text-[11px] text-[var(--tv-stone-400)]">/ {unitLabel(defaultUnit)}</span>
-          </div>
+        {/* ═══════════════════════════════════════════════════════════════
+           OPÇÕES DE UNIDADE — todas visíveis, menor primeiro
+           ═══════════════════════════════════════════════════════════════ */}
+        <div className="mt-auto pt-2 flex flex-col gap-2">
+          {unitsToShow.map((unit) => {
+            const price = getUnitPrice(product, unit);
+            const hasPromo = isPromoActive(product);
+            const originalPrice = product.unit_prices?.[unit] ?? product.base_price;
 
-          <Button
-            size="sm"
-            className={cn(
-              "mt-3 w-full rounded-full gap-1.5 h-10 text-[13px] font-semibold transition-all duration-200",
-              "bg-[var(--tv-moss)] hover:bg-[var(--tv-moss-mid)] text-white active:scale-[0.98]",
-            )}
-            style={{ boxShadow: "var(--shadow-forest)" }}
-            onClick={handleAddToCart}
-          >
-            <Plus className="h-4 w-4" />
-            Adicionar
-          </Button>
+            return (
+              <div
+                key={unit}
+                className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--tv-cream)]"
+              >
+                {/* Preço + unidade */}
+                <div className="flex items-baseline gap-1.5 flex-wrap min-w-0">
+                  {hasPromo && originalPrice > price && (
+                    <span className="text-[11px] text-[var(--tv-stone-400)] line-through decoration-[var(--tv-stone-300)]">
+                      {formatCurrency(originalPrice)}
+                    </span>
+                  )}
+                  <span
+                    className={cn(
+                      "text-[15px] font-bold font-serif",
+                      hasPromo ? "text-[var(--tv-terracota)]" : "text-[var(--tv-moss)]"
+                    )}
+                  >
+                    {formatCurrency(price)}
+                  </span>
+                  <span className="text-[11px] text-[var(--tv-stone-400)] shrink-0">
+                    / {unitLabel(unit)}
+                  </span>
+                </div>
+
+                {/* Botão adicionar esta unidade */}
+                <Button
+                  size="sm"
+                  className={cn(
+                    "rounded-full gap-1 h-8 px-3 text-[12px] font-semibold transition-all duration-200 shrink-0",
+                    "bg-[var(--tv-moss)] hover:bg-[var(--tv-moss-mid)] text-white active:scale-[0.96]",
+                  )}
+                  style={{ boxShadow: "var(--shadow-sm)" }}
+                  onClick={(e) => handleAddToCart(e, unit)}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Add</span>
+                </Button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </motion.article>
