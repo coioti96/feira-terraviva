@@ -21,7 +21,7 @@ export const Route = createFileRoute("/carrinho")({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   CART ITEM ROW — Mobile-first, sem cortar
+   CART ITEM ROW — Mobile-first, centralizado, sem cortar
    ═══════════════════════════════════════════════════════════════ */
 function CartItemRow({
   item,
@@ -37,20 +37,22 @@ function CartItemRow({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "clamp(8px, 2vw, 16px)",
-        padding: "clamp(10px, 3vw, 16px)",
+        gap: "clamp(6px, 2vw, 14px)",
+        padding: "clamp(10px, 3vw, 14px)",
         background: "var(--tv-white)",
         borderRadius: "var(--r-xl)",
         border: "1px solid var(--tv-stone-200)",
         transition: "all var(--duration-fast) ease",
-        minWidth: 0, // evita overflow
+        minWidth: 0,
+        width: "100%",
+        boxSizing: "border-box",
       }}
     >
       {/* Product Image */}
       <div
         style={{
-          width: "clamp(56px, 15vw, 72px)",
-          height: "clamp(56px, 15vw, 72px)",
+          width: "clamp(48px, 13vw, 64px)",
+          height: "clamp(48px, 13vw, 64px)",
           borderRadius: "50%",
           overflow: "hidden",
           flexShrink: 0,
@@ -68,8 +70,8 @@ function CartItemRow({
         />
       </div>
 
-      {/* Product Info — flex-1 com minWidth:0 para ellipsis */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* Product Info */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
         <p
           style={{
             fontWeight: 600,
@@ -84,7 +86,7 @@ function CartItemRow({
         </p>
         <p
           style={{
-            fontSize: "clamp(10px, 3vw, 12px)",
+            fontSize: "clamp(10px, 3vw, 11px)",
             color: "var(--tv-stone-400)",
           }}
         >
@@ -101,12 +103,12 @@ function CartItemRow({
         </p>
       </div>
 
-      {/* Quantity Controls + Remove — layout compacto */}
+      {/* Quantity Controls + Remove */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: "4px",
+          gap: "2px",
           flexShrink: 0,
         }}
       >
@@ -125,8 +127,8 @@ function CartItemRow({
           <button
             onClick={() => onUpdateQty(item.id, item.quantity - 1)}
             style={{
-              width: "clamp(28px, 8vw, 32px)",
-              height: "clamp(28px, 8vw, 32px)",
+              width: "clamp(26px, 7vw, 30px)",
+              height: "clamp(26px, 7vw, 30px)",
               borderRadius: "50%",
               display: "grid",
               placeItems: "center",
@@ -144,13 +146,13 @@ function CartItemRow({
               (e.currentTarget as HTMLButtonElement).style.background = "transparent";
             }}
           >
-            <Minus size={14} />
+            <Minus size={13} />
           </button>
           <span
             style={{
-              width: "clamp(24px, 7vw, 32px)",
+              width: "clamp(22px, 6vw, 28px)",
               textAlign: "center",
-              fontSize: "clamp(12px, 3.5vw, 14px)",
+              fontSize: "clamp(11px, 3.2vw, 13px)",
               fontWeight: 600,
               color: "var(--tv-forest)",
               flexShrink: 0,
@@ -161,8 +163,8 @@ function CartItemRow({
           <button
             onClick={() => onUpdateQty(item.id, item.quantity + 1)}
             style={{
-              width: "clamp(28px, 8vw, 32px)",
-              height: "clamp(28px, 8vw, 32px)",
+              width: "clamp(26px, 7vw, 30px)",
+              height: "clamp(26px, 7vw, 30px)",
               borderRadius: "50%",
               display: "grid",
               placeItems: "center",
@@ -180,7 +182,7 @@ function CartItemRow({
               (e.currentTarget as HTMLButtonElement).style.background = "transparent";
             }}
           >
-            <Plus size={14} />
+            <Plus size={13} />
           </button>
         </div>
 
@@ -191,8 +193,8 @@ function CartItemRow({
             toast.success("Item removido");
           }}
           style={{
-            width: "clamp(28px, 8vw, 36px)",
-            height: "clamp(28px, 8vw, 36px)",
+            width: "clamp(26px, 7vw, 32px)",
+            height: "clamp(26px, 7vw, 32px)",
             borderRadius: "var(--r-lg)",
             display: "grid",
             placeItems: "center",
@@ -213,7 +215,7 @@ function CartItemRow({
           }}
           aria-label="Remover item"
         >
-          <Trash2 size={15} />
+          <Trash2 size={14} />
         </button>
       </div>
     </div>
@@ -221,7 +223,7 @@ function CartItemRow({
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SUMMARY CARD — Responsivo, não corta
+   SUMMARY CARD — Responsivo, centralizado
    ═══════════════════════════════════════════════════════════════ */
 function SummaryCard({
   itemCount,
@@ -249,12 +251,13 @@ function SummaryCard({
         boxShadow: "var(--shadow-lg)",
         overflow: "hidden",
         width: "100%",
+        boxSizing: "border-box",
       }}
     >
       {/* Header */}
       <div
         style={{
-          padding: "clamp(12px, 4vw, 20px) clamp(16px, 5vw, 24px)",
+          padding: "clamp(12px, 4vw, 18px) clamp(14px, 4vw, 22px)",
           borderBottom: "1px solid var(--tv-stone-100)",
           background: "var(--tv-cream)",
         }}
@@ -262,7 +265,7 @@ function SummaryCard({
         <h2
           style={{
             fontFamily: "var(--font-display)",
-            fontSize: "clamp(15px, 4.5vw, 18px)",
+            fontSize: "clamp(14px, 4vw, 17px)",
             fontWeight: 700,
             color: "var(--tv-forest)",
             display: "flex",
@@ -270,31 +273,31 @@ function SummaryCard({
             gap: "var(--space-2)",
           }}
         >
-          <ShoppingBag size={18} style={{ color: "var(--tv-moss)" }} />
+          <ShoppingBag size={17} style={{ color: "var(--tv-moss)", flexShrink: 0 }} />
           Resumo do pedido
         </h2>
       </div>
 
       {/* Body */}
-      <div style={{ padding: "clamp(12px, 4vw, 20px) clamp(16px, 5vw, 24px)" }}>
+      <div style={{ padding: "clamp(12px, 4vw, 18px) clamp(14px, 4vw, 22px)" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "clamp(12px, 3.5vw, 14px)", color: "var(--tv-stone-500)" }}>
+            <span style={{ fontSize: "clamp(11px, 3.3vw, 13px)", color: "var(--tv-stone-500)" }}>
               Subtotal ({itemCount} {itemCount === 1 ? "item" : "itens"})
             </span>
-            <span style={{ fontSize: "clamp(12px, 3.5vw, 14px)", fontWeight: 500, color: "var(--tv-stone-800)" }}>
+            <span style={{ fontSize: "clamp(11px, 3.3vw, 13px)", fontWeight: 500, color: "var(--tv-stone-800)" }}>
               {formatCurrency(subtotal)}
             </span>
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "clamp(12px, 3.5vw, 14px)", color: "var(--tv-stone-500)", display: "flex", alignItems: "center", gap: 4 }}>
-              <MapPin size={12} />
+            <span style={{ fontSize: "clamp(11px, 3.3vw, 13px)", color: "var(--tv-stone-500)", display: "flex", alignItems: "center", gap: 4 }}>
+              <MapPin size={11} style={{ flexShrink: 0 }} />
               Entrega
             </span>
             <span
               style={{
-                fontSize: "clamp(12px, 3.5vw, 14px)",
+                fontSize: "clamp(11px, 3.3vw, 13px)",
                 fontWeight: 500,
                 color: deliveryFee === 0 ? "var(--tv-success)" : "var(--tv-stone-800)",
               }}
@@ -307,18 +310,18 @@ function SummaryCard({
             style={{
               height: 1,
               background: "var(--tv-stone-200)",
-              margin: "var(--space-2) 0",
+              margin: "var(--space-1) 0",
             }}
           />
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <span style={{ fontSize: "clamp(13px, 4vw, 15px)", fontWeight: 600, color: "var(--tv-stone-700)" }}>
+            <span style={{ fontSize: "clamp(12px, 3.5vw, 14px)", fontWeight: 600, color: "var(--tv-stone-700)" }}>
               Total
             </span>
             <span
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: "clamp(20px, 6vw, 28px)",
+                fontSize: "clamp(18px, 5.5vw, 26px)",
                 fontWeight: 700,
                 color: "var(--tv-forest)",
               }}
@@ -334,24 +337,24 @@ function SummaryCard({
           className="tv-btn tv-btn--primary"
           style={{
             width: "100%",
-            marginTop: "var(--space-5)",
+            marginTop: "var(--space-4)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             gap: "var(--space-2)",
-            padding: "clamp(10px, 3vw, 14px) clamp(16px, 5vw, 24px)",
-            fontSize: "clamp(13px, 4vw, 15px)",
+            padding: "clamp(10px, 3vw, 13px)",
+            fontSize: "clamp(12px, 3.5vw, 14px)",
           }}
         >
           {isLoggedIn ? (
             <>
               Finalizar pedido
-              <ArrowRight size={16} />
+              <ArrowRight size={15} />
             </>
           ) : (
             <>
               Entrar e finalizar
-              <ArrowRight size={16} />
+              <ArrowRight size={15} />
             </>
           )}
         </button>
@@ -359,8 +362,8 @@ function SummaryCard({
         {/* Trust Badges */}
         <div
           style={{
-            marginTop: "var(--space-4)",
-            paddingTop: "var(--space-4)",
+            marginTop: "var(--space-3)",
+            paddingTop: "var(--space-3)",
             borderTop: "1px solid var(--tv-stone-100)",
             display: "flex",
             flexDirection: "column",
@@ -372,11 +375,11 @@ function SummaryCard({
               display: "flex",
               alignItems: "center",
               gap: "var(--space-2)",
-              fontSize: "clamp(10px, 3vw, 12px)",
+              fontSize: "clamp(10px, 3vw, 11px)",
               color: "var(--tv-stone-400)",
             }}
           >
-            <Leaf size={12} style={{ color: "var(--tv-moss)", flexShrink: 0 }} />
+            <Leaf size={11} style={{ color: "var(--tv-moss)", flexShrink: 0 }} />
             Produtos frescos e orgânicos
           </div>
           <div
@@ -384,11 +387,11 @@ function SummaryCard({
               display: "flex",
               alignItems: "center",
               gap: "var(--space-2)",
-              fontSize: "clamp(10px, 3vw, 12px)",
+              fontSize: "clamp(10px, 3vw, 11px)",
               color: "var(--tv-stone-400)",
             }}
           >
-            <MapPin size={12} style={{ color: "var(--tv-moss)", flexShrink: 0 }} />
+            <MapPin size={11} style={{ color: "var(--tv-moss)", flexShrink: 0 }} />
             Entrega rápida no seu bairro
           </div>
         </div>
@@ -398,7 +401,7 @@ function SummaryCard({
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   MAIN PAGE — Grid responsivo, mobile-first
+   MAIN PAGE — Centralizado, sem cortar, mobile-first
    ═══════════════════════════════════════════════════════════════ */
 function CartPage() {
   const items = useCartStore((s) => s.items);
@@ -440,17 +443,19 @@ function CartPage() {
     <PublicLayout>
       <div
         style={{
+          width: "100%",
           maxWidth: 1100,
           margin: "0 auto",
-          padding: "clamp(16px, 5vw, 24px) clamp(12px, 4vw, 16px)",
+          padding: "clamp(12px, 4vw, 24px)",
+          boxSizing: "border-box",
         }}
       >
         {/* Header */}
-        <div style={{ marginBottom: "clamp(16px, 5vw, 24px)" }}>
+        <div style={{ marginBottom: "clamp(14px, 4vw, 24px)", padding: "0 clamp(4px, 1vw, 8px)" }}>
           <h1
             style={{
               fontFamily: "var(--font-display)",
-              fontSize: "clamp(22px, 7vw, 32px)",
+              fontSize: "clamp(20px, 6.5vw, 30px)",
               fontWeight: 700,
               color: "var(--tv-forest)",
               lineHeight: 1.1,
@@ -458,7 +463,7 @@ function CartPage() {
           >
             Seu carrinho
           </h1>
-          <p style={{ fontSize: "clamp(12px, 3.5vw, 14px)", color: "var(--tv-stone-400)", marginTop: "var(--space-1)" }}>
+          <p style={{ fontSize: "clamp(11px, 3.2vw, 13px)", color: "var(--tv-stone-400)", marginTop: "var(--space-1)" }}>
             {itemCount} {itemCount === 1 ? "item" : "itens"} selecionado{itemCount === 1 ? "" : "s"}
           </p>
         </div>
@@ -467,13 +472,14 @@ function CartPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr",
-            gap: "clamp(16px, 5vw, 24px)",
+            gridTemplateColumns: "minmax(0, 1fr)",
+            gap: "clamp(14px, 4vw, 24px)",
+            width: "100%",
           }}
           className="cart-layout"
         >
           {/* Items List */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "clamp(8px, 2.5vw, 12px)" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "clamp(8px, 2vw, 12px)", minWidth: 0 }}>
             {items.map((item) => (
               <CartItemRow
                 key={item.id}
@@ -490,11 +496,12 @@ function CartPage() {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "var(--space-2)",
-                fontSize: "clamp(12px, 3.5vw, 14px)",
+                fontSize: "clamp(11px, 3.2vw, 13px)",
                 color: "var(--tv-moss)",
                 fontWeight: 500,
                 textDecoration: "none",
                 marginTop: "var(--space-2)",
+                padding: "0 clamp(4px, 1vw, 8px)",
                 transition: "color var(--duration-fast) ease",
               }}
               onMouseEnter={(e) => {
@@ -504,39 +511,41 @@ function CartPage() {
                 (e.target as HTMLElement).style.color = "var(--tv-moss)";
               }}
             >
-              <ArrowRight size={14} style={{ transform: "rotate(180deg)" }} />
+              <ArrowRight size={13} style={{ transform: "rotate(180deg)" }} />
               Continuar comprando
             </Link>
           </div>
 
           {/* Summary Sidebar */}
-          <SummaryCard
-            itemCount={itemCount}
-            subtotal={subtotal}
-            deliveryFee={deliveryFee}
-            total={total}
-            isLoggedIn={!!profile}
-            onCheckout={() => {
-              if (!profile) {
-                navigate({ to: "/auth/login", search: { redirect: "/checkout" } });
-              } else {
-                navigate({ to: "/checkout" });
-              }
-            }}
-          />
+          <div style={{ minWidth: 0 }}>
+            <SummaryCard
+              itemCount={itemCount}
+              subtotal={subtotal}
+              deliveryFee={deliveryFee}
+              total={total}
+              isLoggedIn={!!profile}
+              onCheckout={() => {
+                if (!profile) {
+                  navigate({ to: "/auth/login", search: { redirect: "/checkout" } });
+                } else {
+                  navigate({ to: "/checkout" });
+                }
+              }}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Desktop: 2 colunas */}
+      {/* Responsive: desktop 2 columns */}
       <style>{`
         @media (min-width: 900px) {
           .cart-layout {
-            grid-template-columns: 1fr 340px !important;
+            grid-template-columns: minmax(0, 1fr) minmax(260px, 320px) !important;
           }
         }
         @media (min-width: 1024px) {
           .cart-layout {
-            grid-template-columns: 1fr 380px !important;
+            grid-template-columns: minmax(0, 1fr) minmax(280px, 360px) !important;
           }
         }
       `}</style>
